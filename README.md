@@ -27,7 +27,7 @@
 전문적인 개발 및 유지보수를 위해 소스코드(`src`), Docker 설정(`docker`), 테스트(`tests`)를 명확히 분리한 구조를 따릅니다.
 
 ```
-helpdeskbot/
+helpdesk-bot/
 ├── .dockerignore
 ├── .env
 ├── docker-compose.yml
@@ -39,7 +39,7 @@ helpdeskbot/
 ├── kb/                    # 📚 RAG 학습을 위한 원본 문서 폴더
 ├── index/                 # 🗂️ FAISS 벡터 인덱스 저장 폴더
 ├── src/                   # 🐍 파이썬 소스코드
-│   └── helpdeskbot/      #   └── 파이썬 패키지
+│   └── helpdesk_bot/      #   └── 파이썬 패키지
 │       ├── __init__.py
 │       ├── api.py         # FastAPI 백엔드
 │       ├── core.py        # RAG, LangGraph 핵심 로직
@@ -47,76 +47,6 @@ helpdeskbot/
 └── tests/                 # 🧪 테스트 코드
     ├── __init__.py
     └── test_api.py
-```
-
----
-
-## 🛠️ 설치 및 실행
-
-### 1. 가상환경 및 의존성 설치
-
-`pyproject.toml`을 사용하여 프로젝트 의존성을 관리합니다.
-
-```bash
-# 1. 가상환경 생성 및 활성화
-#python -m venv .venv
-#source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# 2. 의존성 설치 (운영용)
-pip install .
-
-# 3. 의존성 설치 (개발용 - 테스트 라이브러리 포함)
-pip install -e ".[test]"
-```
-
-### 2. 환경 변수 설정
-
-프로젝트 루트에 `.env` 파일을 생성하고 아래 내용을 자신의 Azure OpenAI 정보로 채워주세요.
-
-```bash
-# .env
-
-# Azure OpenAI Environment Variables
-AOAI_ENDPOINT=[https://your-aoai-endpoint.openai.azure.com/](https://your-aoai-endpoint.openai.azure.com/)
-AOAI_API_KEY=your-aoai-api-key
-AOAI_API_VERSION=2024-10-21
-
-# Deployments
-AOAI_DEPLOY_GPT4O_MINI=gpt-4o-mini
-AOAI_DEPLOY_GPT4O=gpt-4o
-AOAI_DEPLOY_EMBED_3_SMALL=text-embedding-3-small
-
-# API Server Configuration
-API_SERVER_HOST=0.0.0.0
-API_CLIENT_HOST=localhost
-API_PORT=8001
-```
-
-### 3. 애플리케이션 실행
-
-각각 별도의 터미널에서 실행해야 합니다.
-
-**1) FastAPI 백엔드 실행**
-```bash
-python -m helpdesk_bot.api --port 8001 &
-```
-
-**2) Streamlit UI 실행**
-```bash
-streamlit run src/helpdesk_bot/ui.py --server.port 8507
-```
-
--   UI 접속: [http://localhost:8507](http://localhost:8507)
-
----
-
-## 🧪 테스트
-
-프로젝트의 안정성을 보장하기 위해 `pytest`를 사용합니다.
-
-```bash
-# tests 폴더의 모든 테스트 실행
-pytest
 ```
 
 ---
@@ -159,7 +89,6 @@ deactivate
 pip install .
 
 # 2. 의존성 설치 (개발용 - 테스트 라이브러리 포함)
-pip install -e .
 pip install -e ".[test]"
 ```
 
@@ -207,8 +136,8 @@ pytest
 ```
 `pytest`가 `tests` 폴더를 자동으로 찾아 모든 테스트를 실행하고, 전부 `PASSED`로 표시되면 성공입니다.
 
-
 ---
+
 ## 🐳 Docker 실행 가이드
 `docker-compose`를 사용하여 API와 UI 컨테이너를 한 번에 실행할 수 있습니다.
 
