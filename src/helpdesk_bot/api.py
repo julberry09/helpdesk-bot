@@ -1,5 +1,8 @@
 # api.py
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
+
 import uvicorn
 import time as _time
 from typing import List, Dict, Any
@@ -9,7 +12,9 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # 공통 로직(파이프라인, 로거) 임포트
-from .core import pipeline, logger
+from src.helpdesk_bot.core import pipeline, logger
+
+
 
 # =============================================================
 # 1. FastAPI 앱 설정

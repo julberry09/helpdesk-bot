@@ -1,0 +1,32 @@
+# .gitignore
+
+# Python Virtual Environment
+.venv/
+
+# Python build artifacts and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Log files
+logs/
+*.log
+
+# Vectorstore index files
+index/
+
+# OS-specific files
+.DS_Store
+
+# IDE settings folder
+.vscode/
+.idea/
+
+# Local environment variables
+.env
+
+
+# User-uploaded or large knowledge base files
+kb_data/

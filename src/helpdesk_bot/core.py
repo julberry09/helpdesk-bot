@@ -1,7 +1,9 @@
-# core.py
+# src/helpdesk_bot/core.py
+
 import os
 import json
 import logging
+import csv
 import time as _time
 from typing import TypedDict, List, Dict, Any, Optional
 from pathlib import Path
@@ -46,8 +48,14 @@ AOAI_DEPLOY_GPT4O_MINI = os.getenv("AOAI_DEPLOY_GPT4O_MINI", "gpt-4o-mini")
 AOAI_DEPLOY_GPT4O = os.getenv("AOAI_DEPLOY_GPT4O", "gpt-4o")
 AOAI_DEPLOY_EMBED_3_SMALL = os.getenv("AOAI_DEPLOY_EMBED_3_SMALL", "text-embedding-3-small")
 
-# 경로
-KB_DIR = Path("./kb")
+# Azure 설정 확인 플래그
+AZURE_AVAILABLE = bool(AOAI_ENDPOINT and AOAI_API_KEY)
+if not AZURE_AVAILABLE:
+    logger.warning("Azure OpenAI 설정이 없어 폴백(Fallback) 모드로 동작합니다.")
+
+# 경로 변수 분리
+KB_DEFAULT_DIR = Path("./kb_default") # Git에 포함되는 기본 KB
+KB_DATA_DIR = Path("./kb_data")     # Git에 포함되지 않는 추가 KB
 INDEX_DIR = Path("./index")
 INDEX_NAME = "faiss_index"
 
@@ -75,32 +83,53 @@ def _make_embedder() -> AzureOpenAIEmbeddings:
 
 def _load_docs_from_kb() -> List[Document]:
     docs: List[Document] = []
-    if not KB_DIR.exists():
-        KB_DIR.mkdir(parents=True, exist_ok=True)
-    for p in KB_DIR.rglob("*"):
-        if p.is_file():
-            try:
-                suf = p.suffix.lower()
-                if suf == ".pdf": docs.extend(PyPDFLoader(str(p)).load())
-                elif suf == ".csv": docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
-                elif suf in [".txt", ".md"]: docs.extend(TextLoader(str(p), encoding="utf-8").load())
-                elif suf == ".docx": docs.extend(Docx2txtLoader(str(p)).load())
-            except Exception as e:
-                logger.warning(f"문서 로드 실패: {p} - {e}")
+    # 두 개의 폴더를 모두 순회하며 문서를 로드
+    for kb_path in [KB_DEFAULT_DIR, KB_DATA_DIR]:
+        if not kb_path.exists():
+            kb_path.mkdir(parents=True, exist_ok=True)
+        for p in kb_path.rglob("*"):
+            if p.is_file():
+                try:
+                    suf = p.suffix.lower()
+                    if suf == ".pdf": docs.extend(PyPDFLoader(str(p)).load())
+                    elif suf == ".csv" and p.name != "faq_data.csv": # faq_data.csv는 RAG에서 제외
+                        docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
+                    elif suf in [".txt", ".md"]: docs.extend(TextLoader(str(p), encoding="utf-8").load())
+                    elif suf == ".docx": docs.extend(Docx2txtLoader(str(p)).load())
+                except Exception as e:
+                    logger.warning(f"문서 로드 실패: {p} - {e}")
     return docs
 
 def build_or_load_vectorstore() -> FAISS:
+    # RAG 빌드 시에는 Azure 연결이 필수
+    if not AZURE_AVAILABLE:
+        raise RuntimeError("'인덱스 재빌드'는 Azure OpenAI 설정이 필요합니다.")
+        
     embed = _make_embedder()
     if (INDEX_DIR / f"{INDEX_NAME}.faiss").exists():
         return FAISS.load_local(str(INDEX_DIR / INDEX_NAME), embeddings=embed, allow_dangerous_deserialization=True)
 
     raw_docs = _load_docs_from_kb()
+    
+    # [수정] 업로드된 문서가 없으면, faq_data.csv를 기본 지식으로 사용
     if not raw_docs:
-        seed_text = """사내 헬프데스크 안내
+        faq_data = load_faq_data()
+        if faq_data:
+            # CSV의 각 행을 RAG가 이해할 수 있는 Document 형태로 변환
+            raw_docs = [
+                Document(
+                    page_content=f"질문: {item.get('question')}\n답변: {item.get('answer')}",
+                    metadata={"source": "faq_data.csv"}
+                ) for item in faq_data
+            ]
+            logger.info("업로드된 문서가 없어 faq_data.csv를 기본 RAG 지식으로 사용합니다.")
+        else:
+            # FAQ 파일조차 없으면, 최후의 seed_text 사용
+            seed_text = """사내 헬프데스크 안내
 - ID 발급: 신규 입사자는 HR 포털에서 '계정 신청' 양식을 제출. 승인 후 IT가 계정 생성.
 - 비밀번호 초기화: SSO 포털의 '비밀번호 재설정' 기능 사용. 본인인증 필요.
 - 담당자 조회: 포털 상단 검색창에 화면/메뉴명을 입력하면 담당자 카드가 표시됨."""
-        raw_docs = [Document(page_content=seed_text, metadata={"source": "seed-faq.txt"})]
+            raw_docs = [Document(page_content=seed_text, metadata={"source": "seed-faq.txt"})]
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
     chunks = splitter.split_documents(raw_docs)
@@ -117,8 +146,8 @@ def retriever(k: int = 4):
     return _vectorstore.as_retriever(search_kwargs={"k": k})
 
 def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> AzureChatOpenAI:
-    if not (AOAI_ENDPOINT and AOAI_API_KEY):
-        raise RuntimeError("AOAI_ENDPOINT/AOAI_API_KEY 미설정. .env 또는 환경변수 설정 필요.")
+    if not AZURE_AVAILABLE:
+        raise RuntimeError("Azure OpenAI 설정이 없어 LLM을 생성할 수 없습니다.")
     return AzureChatOpenAI(
         azure_deployment=model,
         api_version=AOAI_API_VERSION,
@@ -185,7 +214,7 @@ def node_finalize(state: BotState) -> BotState:
             text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
         elif state["intent"] == "request_id":
             text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
-        else:
+        else: # owner_lookup
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         return {**state, "result": text}
     return state
@@ -199,8 +228,116 @@ def build_graph():
     g.add_edge("finalize", END); g.add_edge("rag", END)
     return g.compile()
 
+# =============================================================
+# 4. Fallback & Main Pipelines
+# =============================================================
+_faq_data = None
+def load_faq_data() -> List[Dict[str, str]]:
+    """kb_default/faq_data.csv 파일을 읽어 메모리에 로드합니다."""
+    global _faq_data
+    if _faq_data is not None:
+        return _faq_data
+    
+    faq_file_path = KB_DEFAULT_DIR / "faq_data.csv"
+    if not faq_file_path.exists():
+        _faq_data = []
+        return _faq_data
+    
+    loaded_data = []
+    try:
+        with open(faq_file_path, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                loaded_data.append(row)
+        logger.info(f"{len(loaded_data)}개의 FAQ 데이터를 로드했습니다.")
+    except Exception as e:
+        logger.error(f"FAQ 파일 로드 실패: {e}")
+    
+    _faq_data = loaded_data
+    return _faq_data
+
+def find_similar_faq(question: str) -> Optional[str]:
+    """자카드 유사도를 사용해 가장 비슷한 FAQ 질문을 찾고 답변을 반환합니다."""
+    faq_data = load_faq_data()
+    if not faq_data:
+        return None
+
+    user_words = set(question.lower().split())
+    if not user_words:
+        return None
+    
+    best_score = 0.0
+    best_answer = None
+    
+    for item in faq_data:
+        faq_question = item.get("question", "")
+        faq_words = set(faq_question.lower().split())
+        
+        if not faq_words:
+            continue
+        
+        intersection = len(user_words.intersection(faq_words))
+        union = len(user_words.union(faq_words))
+        score = intersection / union if union > 0 else 0
+        
+        if score > best_score:
+            best_score = score
+            best_answer = item.get("answer")
+
+    if best_score > 0.2:
+        return best_answer
+    return None
+
+def fallback_pipeline(question: str) -> Dict[str, Any]:
+    """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
+    logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
+    
+    # 가장 먼저 FAQ에서 비슷한 질문을 검색
+    faq_answer = find_similar_faq(question)
+    if faq_answer:
+        return {
+            "result": faq_answer,
+            "intent": "faq",
+            "sources": [{"source": "faq_data.csv"}]
+        }
+
+    # FAQ에 답변이 없으면 키워드 기반으로 툴 호출
+    q = question.lower()
+    if "비밀번호" in q or "초기화" in q:
+        intent = "reset_password"
+        tool_output = tool_reset_password({"user": ""})
+    elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
+        intent = "request_id"
+        tool_output = tool_request_id({})
+    elif "담당자" in q:
+        screen = ""
+        if "인사시스템" in q: screen = "인사시스템-사용자관리"
+        elif "재무시스템" in q: screen = "재무시스템-정산화면"
+        elif "포털" in q: screen = "포털-공지작성"
+        intent = "owner_lookup"
+        tool_output = tool_owner_lookup({"screen": screen})
+    else:
+        # 매칭되는 키워드가 없는 경우
+        return {
+            "result": "죄송합니다. Azure OpenAI 연결이 없어 복잡한 질문에 답변할 수 없습니다.\n'비밀번호 초기화', 'ID 발급', '담당자 조회'와 관련된 질문만 가능합니다.",
+            "intent": "fallback_no_match",
+            "sources": []
+        }
+
+    # 툴 호출 결과를 node_finalize와 유사하게 텍스트로 포맷팅
+    res = tool_output
+    if intent == "reset_password":
+        text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
+    elif intent == "request_id":
+        text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
+    else: # owner_lookup
+        text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
+
+    return {"result": text, "intent": intent, "sources": []}
+
 _graph = None
-def pipeline(question: str) -> Dict[str, Any]:
+def run_graph_pipeline(question: str) -> Dict[str, Any]:
+    """LangGraph 기반의 AI 파이프라인을 실행합니다."""
     global _graph
     logger.info("pipeline_in", extra={"extra_data": {"q": question}})
     if _graph is None: _graph = build_graph()
@@ -208,3 +345,10 @@ def pipeline(question: str) -> Dict[str, Any]:
     out = _graph.invoke(state)
     logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent","")}})
     return out
+
+def pipeline(question: str) -> Dict[str, Any]:
+    """Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다."""
+    if AZURE_AVAILABLE:
+        return run_graph_pipeline(question)
+    else:
+        return fallback_pipeline(question)
