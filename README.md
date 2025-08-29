@@ -1,4 +1,4 @@
-# 💼 사내 헬프데스크 챗봇 (RAG + LangGraph)
+# 🌞 사내 헬프데스크 챗봇 (RAG + LangGraph)
 
 이 프로젝트는 LangChain, FastAPI, Streamlit을 활용하여 구축된 사내 헬프데스크 챗봇 애플리케이션입니다. RAG(검색 증강 생성) 기술을 사용하여 사내 문서 기반의 답변을 제공하고, 특정 요청에 대해서는 미리 정의된 기능을 실행하는 에이전트 역할을 수행합니다.
 
@@ -10,7 +10,7 @@
 
 ---
 
-## ✨ 주요 기능
+## 💡 주요 기능
 
 -   **대화형 서비스**: Streamlit UI를 통해 사용자 친화적인 챗봇 대화 환경을 제공합니다.
 -   **RAG (Retrieval-Augmented Generation)**: `./kb` 폴더의 사내 매뉴얼이나 문서를 기반으로 정확하고 관련성 높은 답변을 생성합니다.
@@ -28,28 +28,36 @@
 
 ```
 helpdesk-bot/
-├── .dockerignore
-├── .env
-├── docker-compose.yml
-├── README.md
+├── README.md              # 📄 프로젝트 설명서
 ├── pyproject.toml         # 📦 프로젝트 의존성 및 메타데이터 관리
-├── docker/                # 🐳 Dockerfile 관리
-│   ├── Dockerfile.api
-│   └── Dockerfile.ui
-├── kb_default/          <-- 📄 Git으로 관리하는 기본 지식 (예: faq_data.csv)
-│   └── faq_data.csv
-└── kb_data/             <-- 🚫 Git이 무시하는 동적/대용량 지식 (예: manual.pdf) 
-├── kb/                    # 📚 RAG 학습을 위한 원본 문서 폴더
-├── index/                 # 🗂️ FAISS 벡터 인덱스 저장 폴더
+├── docker-compose.yml     # 🐳 도커 실행 환경 구성
+├── .env                   # 🤫 환경 변수 설정 파일
+├── .gitignore             # 🚫 Git이 무시할 파일 목록
+├── .dockerignore          # 🚫 Docker가 무시할 파일 목록
+│
 ├── src/                   # 🐍 파이썬 소스코드
 │   └── helpdesk_bot/      #   └── 파이썬 패키지
 │       ├── __init__.py
 │       ├── api.py         # FastAPI 백엔드
 │       ├── core.py        # RAG, LangGraph 핵심 로직
 │       └── ui.py          # Streamlit 프론트엔드
-└── tests/                 # 🧪 테스트 코드
-    ├── __init__.py
-    └── test_api.py
+│
+├── tests/                 # 🧪 테스트 코드
+│   ├── __init__.py
+│   └── test_api.py
+│
+├── docker/                # 🐳 Dockerfile 관리
+│   ├── Dockerfile.api
+│   └── Dockerfile.ui
+│
+├── .streamlit/            # ⚙️ Streamlit 환경 설정
+│   └── config.toml
+│
+├── kb_default/            # 📚 Git으로 관리하는 기본 지식 (예: faq_data.csv)
+│   └── faq_data.csv
+├── kb_data/               # 🗂️ Git이 무시하는 동적/대용량 지식
+├── index/                 # 🗂️ FAISS 벡터 인덱스 저장 폴더
+└── logs/                  # 🪵 로그 파일 저장 폴더
 ```
 
 ---
@@ -95,7 +103,7 @@ python -m venv .venv
 # macOS / Linux 
 source .venv/bin/activate
 
-# Windows (Git Bash) -> This is my use
+# Windows (Git Bash) 
 source .venv/Scripts/activate
 
 # Windows (CMD)
@@ -137,16 +145,28 @@ pip install -e ".[test]"
 ### 4단계: 애플리케이션 실행
 API 서버와 UI를 각각 다른 터미널에서 실행해야 합니다. (각 터미널에서 가상환경 활성화 필요)
 
+**- 사전작업 Windows (Git Bash)**
+```bash
+source .venv/Scripts/activate
+```
+
 **- 터미널 1: FastAPI 백엔드 실행**
 ```bash
-python -m helpdesk_bot.api --port 8001
+
+python -m helpdesk_bot.api --port 8001 
+
 ```
+```bash
+# 서버 연속 실행 (반영시 재기동 x)
+uvicorn helpdesk_bot.api:api --port 8001 --reload
+
+```
+
 
 **- 터미널 2: Streamlit UI 실행**
 ```bash
 streamlit run src/helpdesk_bot/ui.py --server.port 8507
 ```
-
 
 이제 웹 브라우저에서 **[http://localhost:8507](http://localhost:8507)** 주소로 접속하면 챗봇 UI를 사용할 수 있습니다.
 
@@ -272,4 +292,3 @@ ruff check . --fix
     ```bash
     python -m venv .venv
     ```
-

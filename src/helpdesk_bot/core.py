@@ -54,8 +54,8 @@ if not AZURE_AVAILABLE:
     logger.warning("Azure OpenAI 설정이 없어 폴백(Fallback) 모드로 동작합니다.")
 
 # 경로 변수 분리
-KB_DEFAULT_DIR = Path("./kb_default") # Git에 포함되는 기본 KB
-KB_DATA_DIR = Path("./kb_data")     # Git에 포함되지 않는 추가 KB
+KB_DEFAULT_DIR = Path("./kb_default")
+KB_DATA_DIR = Path("./kb_data")
 INDEX_DIR = Path("./index")
 INDEX_NAME = "faiss_index"
 
@@ -83,7 +83,6 @@ def _make_embedder() -> AzureOpenAIEmbeddings:
 
 def _load_docs_from_kb() -> List[Document]:
     docs: List[Document] = []
-    # 두 개의 폴더를 모두 순회하며 문서를 로드
     for kb_path in [KB_DEFAULT_DIR, KB_DATA_DIR]:
         if not kb_path.exists():
             kb_path.mkdir(parents=True, exist_ok=True)
@@ -92,7 +91,7 @@ def _load_docs_from_kb() -> List[Document]:
                 try:
                     suf = p.suffix.lower()
                     if suf == ".pdf": docs.extend(PyPDFLoader(str(p)).load())
-                    elif suf == ".csv" and p.name != "faq_data.csv": # faq_data.csv는 RAG에서 제외
+                    elif suf == ".csv" and p.name != "faq_data.csv":
                         docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
                     elif suf in [".txt", ".md"]: docs.extend(TextLoader(str(p), encoding="utf-8").load())
                     elif suf == ".docx": docs.extend(Docx2txtLoader(str(p)).load())
@@ -101,9 +100,8 @@ def _load_docs_from_kb() -> List[Document]:
     return docs
 
 def build_or_load_vectorstore() -> FAISS:
-    # RAG 빌드 시에는 Azure 연결이 필수
     if not AZURE_AVAILABLE:
-        raise RuntimeError("'인덱스 재빌드'는 Azure OpenAI 설정이 필요합니다.")
+        raise RuntimeError("'Rebuild Index'는 Azure OpenAI 설정이 필요합니다.")
         
     embed = _make_embedder()
     if (INDEX_DIR / f"{INDEX_NAME}.faiss").exists():
@@ -111,11 +109,9 @@ def build_or_load_vectorstore() -> FAISS:
 
     raw_docs = _load_docs_from_kb()
     
-    # [수정] 업로드된 문서가 없으면, faq_data.csv를 기본 지식으로 사용
     if not raw_docs:
         faq_data = load_faq_data()
         if faq_data:
-            # CSV의 각 행을 RAG가 이해할 수 있는 Document 형태로 변환
             raw_docs = [
                 Document(
                     page_content=f"질문: {item.get('question')}\n답변: {item.get('answer')}",
@@ -124,7 +120,6 @@ def build_or_load_vectorstore() -> FAISS:
             ]
             logger.info("업로드된 문서가 없어 faq_data.csv를 기본 RAG 지식으로 사용합니다.")
         else:
-            # FAQ 파일조차 없으면, 최후의 seed_text 사용
             seed_text = """사내 헬프데스크 안내
 - ID 발급: 신규 입사자는 HR 포털에서 '계정 신청' 양식을 제출. 승인 후 IT가 계정 생성.
 - 비밀번호 초기화: SSO 포털의 '비밀번호 재설정' 기능 사용. 본인인증 필요.
@@ -155,19 +150,29 @@ def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> A
         api_key=AOAI_API_KEY,
         temperature=temperature,
     )
-
 # =============================================================
-# 3. LangGraph (도구 + 노드)
-# =============================================================
+# 3. LangGraph (도구 + 노드)화이
+# ==========================================================
 class BotState(TypedDict):
     question: str; intent: str; result: str
     sources: List[Dict[str, Any]]; tool_output: Dict[str, Any]
 
 def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = payload.get("user") or ""
+
+
+    # [수정 시작] ---------------------------------------------
+    # user가 비어있을 때, 실패가 아닌 '질문'을 반환
+    if not user:
+        return {
+            "ok": False, 
+            "message": "네, 비밀번호 초기화가 필요한 사번 말해주세요. (질문포멧: EN999 비밀번호 초기화)"
+        }
+    # [수정 끝] -----------------------------------------------
+
     found = EMPLOYEE_DIR.get(user)
     if not found:
-        return {"ok": False, "message": "사번/계정이 확인되지 않습니다."}
+        return {"ok": False, "message": "사번이 확인되지 않습니다."}
     return {"ok": True, "message": f"{found['name']}님의 비밀번호 초기화 절차 안내", "steps": ["SSO 포털 접속 > 비밀번호 재설정", "본인인증", "새 비밀번호 설정"]}
 
 def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,7 +219,7 @@ def node_finalize(state: BotState) -> BotState:
             text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
         elif state["intent"] == "request_id":
             text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
-        else: # owner_lookup
+        else:
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         return {**state, "result": text}
     return state
@@ -291,17 +296,20 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
+    # 지능형 답변 기능 불가
+    prefix_message = "[안내] 현재는 AI 분석 서버에 연결되어 있지 않아, 자주 묻는 질문(FAQ) 바탕으로만 답변가능합니다.\n\n---\n\n"
     
     # 가장 먼저 FAQ에서 비슷한 질문을 검색
     faq_answer = find_similar_faq(question)
     if faq_answer:
         return {
-            "result": faq_answer,
+            "result": prefix_message + faq_answer,
             "intent": "faq",
             "sources": [{"source": "faq_data.csv"}]
         }
 
     # FAQ에 답변이 없으면 키워드 기반으로 툴 호출
+
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
         intent = "reset_password"
@@ -317,23 +325,22 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
         intent = "owner_lookup"
         tool_output = tool_owner_lookup({"screen": screen})
     else:
-        # 매칭되는 키워드가 없는 경우
+        no_match_message = "죄송합니다. 복잡한 질문에 답변할 수 없습니다.\n'비밀번호 초기화', 'ID 발급', '담당자 조회' 관련된 것만 가능합니다."
         return {
-            "result": "죄송합니다. Azure OpenAI 연결이 없어 복잡한 질문에 답변할 수 없습니다.\n'비밀번호 초기화', 'ID 발급', '담당자 조회'와 관련된 질문만 가능합니다.",
+            "result": prefix_message + no_match_message,
             "intent": "fallback_no_match",
             "sources": []
         }
 
-    # 툴 호출 결과를 node_finalize와 유사하게 텍스트로 포맷팅
     res = tool_output
     if intent == "reset_password":
         text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
     elif intent == "request_id":
         text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
-    else: # owner_lookup
+    else:
         text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
 
-    return {"result": text, "intent": intent, "sources": []}
+    return {"result": prefix_message + text, "intent": intent, "sources": []}
 
 _graph = None
 def run_graph_pipeline(question: str) -> Dict[str, Any]:
