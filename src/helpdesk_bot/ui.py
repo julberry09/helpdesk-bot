@@ -53,18 +53,21 @@ def main():
             # 버튼도 같은 컬럼 안에 배치하고, use_container_width를 사용해 너비를 맞춥니다.
             if st.button("인덱스 재빌드", disabled=not AZURE_AVAILABLE, use_container_width=True):
                 try:
-                    # ... (인덱스 재빌드 로직)
+                    for ext in [".faiss", ".pkl"]:
+                        p = INDEX_DIR / f"{INDEX_NAME}{ext}"
+                        if p.exists(): p.unlink()
+                    with st.spinner("인덱스 재생성 중..."):
+                        build_or_load_vectorstore()
+                    st.success("완료!")
                 except Exception as e:
                     st.error(f"실패: {e}")
-        
-        # [수정 끝] -----------------------------------------------
         
         if not AZURE_AVAILABLE:
             st.caption("ℹ️ '인덱스 재빌드'는 Azure 연결 시에만 활성화됩니다.")
 
         st.divider()
         api_host = os.getenv("API_CLIENT_HOST", "localhost")
-        api_port = int(os.getenv("API_PORT", 8001))
+        api_port = int(os.getenv("API_PORT", 8000))
         api_base_url = f"http://{api_host}:{api_port}"
         
         api_is_healthy = check_api_health(api_base_url)
@@ -97,7 +100,7 @@ def main():
                             reply = data.get("reply",""); sources = data.get("sources", [])
                     else:
                         out = pipeline(q)
-                        reply = out.get("result",""); sources = out.get("sources", [])
+                        reply = out.get("result",""); sources = data.get("sources", [])
                     
                     st.markdown(reply)
                     if sources:

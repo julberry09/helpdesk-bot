@@ -56,12 +56,31 @@ helpdesk-bot/
 
 ## 🛠️ 로컬 환경 실행 및 테스트 가이드
 
-Docker를 사용하지 않고 로컬 환경에서 프로젝트를 설정하고 테스트하는 전체 과정입니다.
+로컬 환경에서 프로젝트를 설정하고 테스트하는 전체 과정입니다.
 
-### 1단계: 프로젝트 초기 설정
+### 1단계: 환경 변수 설정
+프로젝트 최상위 폴더에 `.env` 파일을 생성하고, 자신의 Azure OpenAI 정보로 값을 수정해야 합니다.
+
+```bash
+# .env
+# Azure OpenAI Environment Variables
+AOAI_ENDPOINT=[https://your-aoai-endpoint.openai.azure.com/](https://your-aoai-endpoint.openai.azure.com/)
+AOAI_API_KEY=your-aoai-api-key
+AOAI_API_VERSION=2024-10-21
+
+# Deployments
+AOAI_DEPLOY_GPT4O_MINI=gpt-4o-mini
+AOAI_DEPLOY_GPT4O=gpt-4o
+AOAI_DEPLOY_EMBED_3_SMALL=text-embedding-3-small
+
+# API Server Configuration
+API_SERVER_HOST=0.0.0.0
+API_CLIENT_HOST=localhost
+API_PORT=8001
+```
+
+### 2단계: 프로젝트 초기 설정
 프로젝트를 위한 격리된 파이썬 가상환경을 생성하고 활성화합니다.
-
-### 1. 가상환경 설정
 
 **- 가상환경 생성 (최초 1회)**
 ```bash
@@ -76,7 +95,7 @@ python -m venv .venv
 # macOS / Linux 
 source .venv/bin/activate
 
-# Windows (Git Bash)
+# Windows (Git Bash) -> This is my use
 source .venv/Scripts/activate
 
 # Windows (CMD)
@@ -96,7 +115,7 @@ deactivate
 
 ```
 
-### 2단계: 의존성 설치
+### 3단계: 의존성 설치
 `pyproject.toml`을 사용하여 프로젝트 실행과 테스트에 필요한 모든 라이브러리를 설치합니다.
 
 | 구분 | `pip install .` | `pip install -e ".[test]"` |
@@ -113,28 +132,6 @@ pip install .
 
 # 2. 의존성 설치 (개발용 - 테스트 라이브러리 포함)
 pip install -e ".[test]"
-```
-
-### 3단계: 환경 변수 설정
-프로젝트 최상위 폴더에 `.env` 파일을 생성하고, 자신의 Azure OpenAI 정보로 값을 수정해야 합니다.
-
-```bash
-# .env
-
-# Azure OpenAI Environment Variables
-AOAI_ENDPOINT=[https://your-aoai-endpoint.openai.azure.com/](https://your-aoai-endpoint.openai.azure.com/)
-AOAI_API_KEY=your-aoai-api-key
-AOAI_API_VERSION=2024-10-21
-
-# Deployments
-AOAI_DEPLOY_GPT4O_MINI=gpt-4o-mini
-AOAI_DEPLOY_GPT4O=gpt-4o
-AOAI_DEPLOY_EMBED_3_SMALL=text-embedding-3-small
-
-# API Server Configuration
-API_SERVER_HOST=0.0.0.0
-API_CLIENT_HOST=localhost
-API_PORT=8001
 ```
 
 ### 4단계: 애플리케이션 실행
@@ -275,3 +272,4 @@ ruff check . --fix
     ```bash
     python -m venv .venv
     ```
+
