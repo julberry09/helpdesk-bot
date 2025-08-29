@@ -297,7 +297,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
     # 지능형 답변 기능 불가
-    prefix_message = "[안내] 현재는 AI 분석 서버에 연결되어 있지 않아, 자주 묻는 질문(FAQ) 바탕으로만 답변가능합니다.\n\n---\n\n"
+    prefix_message = "[안내] 현재는 기본 모드로 동작하며, FAQ와 주요 업무 기능(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
     
     # 가장 먼저 FAQ에서 비슷한 질문을 검색
     faq_answer = find_similar_faq(question)

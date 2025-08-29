@@ -11,25 +11,19 @@ import httpx
 # 절대 경로 임포트 사용
 from helpdesk_bot.core import pipeline, KB_DATA_DIR, INDEX_DIR, INDEX_NAME, build_or_load_vectorstore, AZURE_AVAILABLE
 
-# src/helpdesk_bot/ui.py
-
 def format_source_name(source_name: str) -> str:
     """
     파일 이름을 사용자가 이해하기 쉬운 설명으로 변환합니다.
     """
-    # 미리 정의된 파일 이름에 대한 설명
     known_sources = {
-        "faq_data.csv": "자주 묻는 질문(FAQ)"
-       #, "seed-faq.txt": "표준 답변 자료"
+        "faq_data.csv": "자주 묻는 질문 (FAQ)"
+       #, "seed-faq.txt": "기본 내장 지식"
     }
-    
-    # 알려진 소스이면 정의된 설명을 사용, 아니면 '참고 문서'라는 일반적인 용어 사용
     display_name = known_sources.get(source_name, "참고 문서")
-    
     return f"{display_name} (파일명: {source_name})"
 
 # API 상태를 확인하는 함수 (60초 동안 결과를 캐시하여 성능 저하 방지)
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=180)
 def check_api_health(api_base_url):
     """API 서버의 /health 엔드포인트를 확인하여 상태를 반환합니다."""
     try:
@@ -53,15 +47,16 @@ def main():
     """, unsafe_allow_html=True)
 
     with st.sidebar:
-        st.header("🎓 챗봇 학습시키기")
+        st.header("🎓 AI 학습시키기")
 
         # 전체적인 들여쓰기를 제어할 컬럼 생성
         left_space, main_col = st.columns([0.01, 0.99])
 
         # 파일 업로더와 버튼을 모두 오른쪽 컬럼(main_col) 안에 배치하여 시작점 통일
+        # 문서 업로드 (PDF/CSV/TXT/DOCX)
         with main_col:
             uploaded = st.file_uploader(
-                "문서 업로드 (PDF/CSV/TXT/DOCX)", 
+                "문서 업로드", 
                 type=["pdf","csv","txt","md","docx"], 
                 accept_multiple_files=True,
                 label_visibility="collapsed"
@@ -71,7 +66,7 @@ def main():
                 for f in uploaded:
                     with open(KB_DATA_DIR / f.name, "wb") as w:
                         w.write(f.read())
-                st.success(f"{len(uploaded)}개 문서 저장됨. 'Rebuild Index'를 눌러 반영하세요.")
+                st.success(f"{len(uploaded)}개 문서 저장됨. 'Sync Content'를 눌러 반영하세요.")
 
             # 버튼 좌우에 5% 여백을 주기 위한 중첩 컬럼
             btn_left, btn_mid, btn_right = st.columns([0.05, 0.7, 0.25])
@@ -88,44 +83,48 @@ def main():
                     except Exception as e:
                         st.error(f"실패: {e}")
         
-        if not AZURE_AVAILABLE:
-            st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;* Sync Content 는 AI 분석 서버")
-            st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;연결 시에만 활성화됩니다.")
+        # if not AZURE_AVAILABLE:
+        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;* AI 서버가 연결되면 ")
+        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Sync Content")
+        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;기능이 활성화됩니다.")
 
         st.divider()
-
         api_host = os.getenv("API_CLIENT_HOST", "localhost")
         api_port = int(os.getenv("API_PORT", 8001))
         api_base_url = f"http://{api_host}:{api_port}"
         
-        # 1. st.status는 "확인 중..." 메시지를 잠깐 보여주는 용도로만 사용
         with st.status("시스템 상태 확인 중...", expanded=False) as status:
             api_is_healthy = check_api_health(api_base_url)
             # 확인이 끝나면 이 메시지는 자동으로 사라집니다.
-            status.update(label="확인 완료", state="complete")
+            status.update(label="서버 연결 상태", state="complete", expanded=False)
 
-            # 2. 확인된 결과를 바탕으로 st.markdown을 사용해 직접 아이콘과 텍스트 표시
             if api_is_healthy and AZURE_AVAILABLE:
-                st.markdown("✅ AI 서버: 온라인")
+                st.markdown("✅ AI : 온라인")
             elif api_is_healthy and not AZURE_AVAILABLE:
-                st.markdown("⚠️ AI 서버: 제한 모드 (기본 답변만 가능)")
+                st.markdown("⚠️ AI 제한: 기본모드")
             else:
                 st.markdown("🚨 API 서버: 오프라인")
+            status.update(label="서버 연결 상태", state="complete", expanded=True)
+
+    # 채팅 기록 표시
+    if "chat" not in st.session_state:
+        st.session_state.chat = [
+            ("assistant", "안녕하세요! 무엇을 도와드릴까요?")
+        ]
 
     for role, content in st.session_state.chat:
         with st.chat_message(role):
             st.markdown(content)
 
+    # 사용자 입력 처리
     if q := st.chat_input("궁금한 것을 입력해주세요..."):
         st.session_state.chat.append(("user", q))
         with st.chat_message("user"): st.markdown(q)
 
         with st.chat_message("assistant"):
             with st.spinner("처리 중..."):
-                # [수정 시작] ----------------------------------------------------------------
                 reply, sources = None, []
                 try:
-                    # line 125: api_is_healthy가 True이면 API 호출 시도
                     if api_is_healthy:
                         with httpx.Client(timeout=30.0) as client:
                             resp = client.post(f"{api_base_url}/chat", json={"message": q})
@@ -135,20 +134,16 @@ def main():
                     else:
                         out = pipeline(q)
                         reply = out.get("result",""); sources = out.get("sources", [])
-
-                # line 136: API 연결 실패 에러를 별도로 잡아서 처리
+                
                 except httpx.ConnectError:
                     st.warning("API 서버에 연결할 수 없어 로컬 폴백 모드로 자동 전환하여 재시도합니다.")
-                    # API 호출 실패 시, 로컬 파이프라인으로 다시 시도
                     out = pipeline(q)
                     reply = out.get("result",""); sources = out.get("sources", [])
                 
-                # line 143: 그 외 예상치 못한 다른 에러 처리
                 except Exception as e:
                     reply = f"오류: {e}"
                     sources = []
 
-                # line 147: 응답 및 소스 표시 로직
                 if reply:
                     st.markdown(reply)
                     if sources:
