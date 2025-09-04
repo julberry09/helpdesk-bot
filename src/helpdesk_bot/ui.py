@@ -17,7 +17,6 @@ def format_source_name(source_name: str) -> str:
     """
     known_sources = {
         "faq_data.csv": "자주 묻는 질문 (FAQ)"
-       #, "seed-faq.txt": "기본 내장 지식"
     }
     display_name = known_sources.get(source_name, "참고 문서")
     return f"{display_name} (파일명: {source_name})"
@@ -151,8 +150,6 @@ def main():
                                     line = f"- {source_display}"
                                 st.write(line)
                     st.session_state.chat.append(("assistant", reply))
-                # [수정 끝] ------------------------------------------------------------------
-
 
 if __name__ == "__main__":
     main()

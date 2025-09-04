@@ -16,30 +16,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 
-# from langgraph.checkpoint.memory import MemorySaver
-
-# _memory_checkpointer = MemorySaver()
-# _graph = None
-
-# def build_graph():
-#     g = StateGraph(BotState)
-#     # ... (노드 및 엣지 정의는 동일)
-#     # compile 시 checkpointer 추가
-#     return g.compile(checkpointer=_memory_checkpointer)
-
-# def run_graph_pipeline(question: str) -> Dict[str, Any]:
-#     global _graph
-#     if _graph is None:
-#         _graph = build_graph()
-
-#     state: BotState = {"question": question, ...}
-#     # invoke 호출을 config와 함께 실행
-#     out = _graph.invoke(
-#         input=state,
-#         config={"configurable": {"thread_id": "unique-session-id"}} # 세션별 고유 ID
-#     )
-#     return out
-
 # =============================================================
 # 1. 공통 설정 / 환경 변수
 # =============================================================
@@ -175,7 +151,7 @@ def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> A
         temperature=temperature,
     )
 # =============================================================
-# 3. LangGraph (도구 + 노드)화이
+# 3. LangGraph (도구 + 노드)
 # ==========================================================
 class BotState(TypedDict):
     question: str; intent: str; result: str
@@ -183,17 +159,11 @@ class BotState(TypedDict):
 
 def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     user = payload.get("user") or ""
-
-
-    # [수정 시작] ---------------------------------------------
-    # user가 비어있을 때, 실패가 아닌 '질문'을 반환
     if not user:
         return {
             "ok": False, 
             "message": "네, 비밀번호 초기화가 필요한 사번 말해주세요. (질문포멧: EN999 비밀번호 초기화)"
         }
-    # [수정 끝] -----------------------------------------------
-
     found = EMPLOYEE_DIR.get(user)
     if not found:
         return {"ok": False, "message": "사번이 확인되지 않습니다."}
@@ -220,10 +190,8 @@ def node_classify(state: BotState) -> BotState:
         intent = data.get("intent", "rag_qa")
         args = data.get("arguments", {}) or {}
     except json.JSONDecodeError:
-        # JSON 형식 오류일 경우 로그를 남기고 기본값 사용
         logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
     except Exception:
-        # 기타 예상치 못한 오류 처리
         logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
 
     return {**state, "intent": intent, "tool_output": args}
@@ -326,10 +294,8 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
-    # 지능형 답변 기능 불가
     prefix_message = "[안내] 현재는 기본 모드로 동작하며, FAQ와 주요 업무 기능(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
     
-    # 가장 먼저 FAQ에서 비슷한 질문을 검색
     faq_answer = find_similar_faq(question)
     if faq_answer:
         return {
@@ -337,8 +303,6 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
             "intent": "faq",
             "sources": [{"source": "faq_data.csv"}]
         }
-
-    # FAQ에 답변이 없으면 키워드 기반으로 툴 호출
 
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:

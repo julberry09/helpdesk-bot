@@ -15,7 +15,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from src.helpdesk_bot.core import pipeline, logger
 
 
-
 # =============================================================
 # 1. FastAPI 앱 설정
 # =============================================================
