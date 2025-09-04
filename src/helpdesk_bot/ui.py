@@ -11,16 +11,6 @@ import httpx
 # 절대 경로 임포트 사용
 from helpdesk_bot.core import pipeline, KB_DATA_DIR, INDEX_DIR, INDEX_NAME, build_or_load_vectorstore, AZURE_AVAILABLE
 
-def format_source_name(source_name: str) -> str:
-    """
-    파일 이름을 사용자가 이해하기 쉬운 설명으로 변환합니다.
-    """
-    known_sources = {
-        "faq_data.csv": "자주 묻는 질문 (FAQ)"
-    }
-    display_name = known_sources.get(source_name, "참고 문서")
-    return f"{display_name} (파일명: {source_name})"
-
 # API 상태를 확인하는 함수 (60초 동안 결과를 캐시하여 성능 저하 방지)
 @st.cache_data(ttl=180)
 def check_api_health(api_base_url):
@@ -32,6 +22,19 @@ def check_api_health(api_base_url):
     except httpx.ConnectError:
         return False
 
+def format_source_name(source_name: str) -> str:
+    """
+    파일 이름을 사용자가 이해하기 쉬운 설명으로 변환합니다.
+    """
+    known_sources = {
+        "faq_data.csv": "자주 묻는 질문 (FAQ)"
+       #, "seed-faq.txt": "기본 내장 지식"
+    }
+    display_name = known_sources.get(source_name, "참고 문서")
+    return f"{display_name} (파일명: {source_name})"
+
+# [checklist: 10] 서비스 개발 및 패키징 (Streamlit을 활용한 UI 개발)
+# Streamlit을 사용하여 사용자 친화적인 웹 인터페이스를 구축함
 def main():
     st.set_page_config(page_title="사내 헬프데스크 챗봇", page_icon="💡", layout="wide")
     st.title("🌞 사내 헬프데스크 챗봇")

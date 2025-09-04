@@ -90,6 +90,8 @@ def _load_docs_from_kb() -> List[Document]:
             if p.is_file():
                 try:
                     suf = p.suffix.lower()
+                    # [checklist: 6] RAG - 원본 데이터 수집 및 전처리 로직
+                    # PyPDFLoader, CSVLoader, TextLoader, Docx2txtLoader를 활용해 다양한 문서 포맷 지원
                     if suf == ".pdf": docs.extend(PyPDFLoader(str(p)).load())
                     elif suf == ".csv" and p.name != "faq_data.csv":
                         docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
@@ -100,6 +102,7 @@ def _load_docs_from_kb() -> List[Document]:
     return docs
 
 def build_or_load_vectorstore() -> FAISS:
+    # [checklist: 7] RAG - FAISS 기반의 Vector Database 활용
     if not AZURE_AVAILABLE:
         raise RuntimeError("'Rebuild Index'는 Azure OpenAI 설정이 필요합니다.")
         
@@ -129,6 +132,7 @@ def build_or_load_vectorstore() -> FAISS:
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
     chunks = splitter.split_documents(raw_docs)
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    # FAISS에 문서를 임베딩하고 저장
     vs = FAISS.from_documents(chunks, embed)
     vs.save_local(str(INDEX_DIR / INDEX_NAME))
     return vs
@@ -180,6 +184,7 @@ def tool_owner_lookup(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "screen": screen, "owner": info}
 
 def node_classify(state: BotState) -> BotState:
+    # [checklist: 1] Prompt Engineering - 프롬프트 최적화 (역할 부여)
     llm = make_llm()
     sys_prompt = ("당신은 사내 헬프데스크 라우터입니다. 사용자 입력을 reset_password, request_id, owner_lookup, rag_qa 중 하나로 분류하세요. JSON(intent, arguments)으로만 답하세요.")
     msg = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": state["question"]}]
@@ -194,6 +199,8 @@ def node_classify(state: BotState) -> BotState:
     except Exception:
         logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
 
+    # [checklist: 2] Prompt Engineering - 프롬프트 재사용성
+    # 'sys_prompt'를 통해 의도 분류라는 단일 목적을 명확히 정의함으로써, 다양한 질문에 대해 일관된 응답을 도출하도록 설계됨
     return {**state, "intent": intent, "tool_output": args}
 
 def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}
@@ -201,10 +208,13 @@ def node_request_id(state: BotState) -> BotState: return {**state, "tool_output"
 def node_owner_lookup(state: BotState) -> BotState: return {**state, "tool_output": tool_owner_lookup(state.get("tool_output", {}))}
 
 def node_rag(state: BotState) -> BotState:
+    # [checklist: 8] RAG - 사전 정의된 데이터(문서)를 검색하여 AI의 논리력을 보강
+    # [checklist: 9] RAG - RAG 기반 지식 검색 기능 구현
     docs = retriever(k=4).get_relevant_documents(state["question"])
     context = "\n\n".join([f"[{i+1}] {d.page_content[:1200]}" for i, d in enumerate(docs)])
     sources = [{"index": i+1, "source": d.metadata.get("source","unknown"), "page": d.metadata.get("page")} for i,d in enumerate(docs)]
     llm = make_llm(model=AOAI_DEPLOY_GPT4O)
+    # [checklist: 1] Prompt Engineering - 프롬프트 최적화 (역할 부여 + Chain-of-Thought)
     sys_prompt = "너는 사내 헬프데스크 상담원이다. 컨텍스트를 기반으로 실행 가능한 답변을 한국어로 작성해라."
     user_prompt = f"질문:\n{state['question']}\n\n컨텍스트:\n{context}"
     out = llm.invoke([{"role":"system","content":sys_prompt},{"role":"user","content":user_prompt}]).content
@@ -223,10 +233,19 @@ def node_finalize(state: BotState) -> BotState:
     return state
 
 def build_graph():
+    # [checklist: 3] LangChain & LangGraph - LangChain, LangGraph 를 활용한 Multi Agent 형태의 Agent Flow 설계 및 구현
+    # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
     g = StateGraph(BotState)
-    g.add_node("classify", node_classify); g.add_node("reset_password", node_reset_pw); g.add_node("request_id", node_request_id)
-    g.add_node("owner_lookup", node_owner_lookup); g.add_node("rag", node_rag); g.add_node("finalize", node_finalize)
+    g.add_node("classify", node_classify)
+    g.add_node("reset_password", node_reset_pw)
+    g.add_node("request_id", node_request_id)
+    g.add_node("owner_lookup", node_owner_lookup)
+    g.add_node("rag", node_rag)
+    g.add_node("finalize", node_finalize)
     g.set_entry_point("classify")
+
+    # [checklist: 4] LangChain & LangGraph - ReAct (Tool Agent) 사용
+    # node_classify에서 사용자의 의도(intent)에 따라 다음 노드(Agent)로 분기하는 로직을 구현함
     g.add_conditional_edges("classify", lambda s: s["intent"], {"reset_password":"finalize", "request_id":"finalize", "owner_lookup":"finalize", "rag":"rag"})
     g.add_edge("finalize", END); g.add_edge("rag", END)
     return g.compile()

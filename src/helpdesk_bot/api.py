@@ -18,6 +18,7 @@ from src.helpdesk_bot.core import pipeline, logger
 # =============================================================
 # 1. FastAPI 앱 설정
 # =============================================================
+# [checklist: 11] 서비스 개발 및 패키징 - FastAPI를 활용하여 백엔드 API 구성
 api = FastAPI(title="Helpdesk RAG API", version="0.1.0")
 
 class AuditMiddleware(BaseHTTPMiddleware):
