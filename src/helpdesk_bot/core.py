@@ -16,6 +16,30 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 
+# from langgraph.checkpoint.memory import MemorySaver
+
+# _memory_checkpointer = MemorySaver()
+# _graph = None
+
+# def build_graph():
+#     g = StateGraph(BotState)
+#     # ... (노드 및 엣지 정의는 동일)
+#     # compile 시 checkpointer 추가
+#     return g.compile(checkpointer=_memory_checkpointer)
+
+# def run_graph_pipeline(question: str) -> Dict[str, Any]:
+#     global _graph
+#     if _graph is None:
+#         _graph = build_graph()
+
+#     state: BotState = {"question": question, ...}
+#     # invoke 호출을 config와 함께 실행
+#     out = _graph.invoke(
+#         input=state,
+#         config={"configurable": {"thread_id": "unique-session-id"}} # 세션별 고유 ID
+#     )
+#     return out
+
 # =============================================================
 # 1. 공통 설정 / 환경 변수
 # =============================================================
@@ -195,7 +219,13 @@ def node_classify(state: BotState) -> BotState:
         data = json.loads(out)
         intent = data.get("intent", "rag_qa")
         args = data.get("arguments", {}) or {}
-    except Exception: pass
+    except json.JSONDecodeError:
+        # JSON 형식 오류일 경우 로그를 남기고 기본값 사용
+        logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
+    except Exception:
+        # 기타 예상치 못한 오류 처리
+        logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
+
     return {**state, "intent": intent, "tool_output": args}
 
 def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}

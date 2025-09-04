@@ -83,11 +83,6 @@ def main():
                     except Exception as e:
                         st.error(f"실패: {e}")
         
-        # if not AZURE_AVAILABLE:
-        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;* AI 서버가 연결되면 ")
-        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Sync Content")
-        #     st.caption("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;기능이 활성화됩니다.")
-
         st.divider()
         api_host = os.getenv("API_CLIENT_HOST", "localhost")
         api_port = int(os.getenv("API_PORT", 8001))
