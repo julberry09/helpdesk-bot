@@ -15,6 +15,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langgraph.checkpoint.memory import MemorySaver # 💡 추가: 메모리 체커포인트 임포트
 
 # =============================================================
 # 1. 공통 설정 / 환경 변수
@@ -232,9 +233,13 @@ def node_finalize(state: BotState) -> BotState:
         return {**state, "result": text}
     return state
 
+_memory_checkpointer = MemorySaver()
+_graph = None
+
 def build_graph():
     # [checklist: 3] LangChain & LangGraph - LangChain, LangGraph 를 활용한 Multi Agent 형태의 Agent Flow 설계 및 구현
-    # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
+    # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
+    # # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
     g = StateGraph(BotState)
     g.add_node("classify", node_classify)
     g.add_node("reset_password", node_reset_pw)
@@ -248,7 +253,8 @@ def build_graph():
     # node_classify에서 사용자의 의도(intent)에 따라 다음 노드(Agent)로 분기하는 로직을 구현함
     g.add_conditional_edges("classify", lambda s: s["intent"], {"reset_password":"finalize", "request_id":"finalize", "owner_lookup":"finalize", "rag":"rag"})
     g.add_edge("finalize", END); g.add_edge("rag", END)
-    return g.compile()
+    # 💡 수정: checkpointer를 추가하여 그래프 컴파일
+    return g.compile(checkpointer=_memory_checkpointer)
 
 # =============================================================
 # 4. Fallback & Main Pipelines
@@ -357,18 +363,25 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
 _graph = None
 def run_graph_pipeline(question: str) -> Dict[str, Any]:
+    # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
     """LangGraph 기반의 AI 파이프라인을 실행합니다."""
     global _graph
     logger.info("pipeline_in", extra={"extra_data": {"q": question}})
     if _graph is None: _graph = build_graph()
-    state: BotState = {"question": question, "intent":"", "result":"", "sources":[], "tool_output":{}}
-    out = _graph.invoke(state)
+    # 💡 수정: `invoke` 호출 시 `input`과 `config`를 모두 전달하여 메모리 활용
+    out = _graph.invoke(
+        input={"question": question, "intent":"", "result":"", "sources":[], "tool_output":{}},
+        config={"configurable": {"thread_id": session_id}}
+    )
     logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent","")}})
     return out
 
-def pipeline(question: str) -> Dict[str, Any]:
+# 💡 수정: question 외에 session_id 인자를 추가
+def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     """Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다."""
     if AZURE_AVAILABLE:
-        return run_graph_pipeline(question)
+        # 💡 수정: session_id 전달
+        return run_graph_pipeline(question, session_id)
     else:
+        # 폴백 모드는 메모리가 필요 없으므로 기존대로 호출
         return fallback_pipeline(question)

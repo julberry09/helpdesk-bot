@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(
 
 import streamlit as st
 import httpx
+import uuid # 💡 추가: 고유 식별자 생성을 위해 uuid 모듈 임포트
 
 # 절대 경로 임포트 사용
 from helpdesk_bot.core import pipeline, KB_DATA_DIR, INDEX_DIR, INDEX_NAME, build_or_load_vectorstore, AZURE_AVAILABLE
@@ -38,6 +39,12 @@ def format_source_name(source_name: str) -> str:
 def main():
     st.set_page_config(page_title="사내 헬프데스크 챗봇", page_icon="💡", layout="wide")
     st.title("🌞 사내 헬프데스크 챗봇")
+    # st.markdown("도움이 필요하신가요? 질문을 입력해 주세요!")
+    # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
+        # 💡 추가: 세션 상태에 thread_id가 없으면 새로 생성
+    if "thread_id" not in st.session_state:
+        st.session_state["thread_id"] = str(uuid.uuid4())
+
     # 버튼 텍스트를 왼쪽 정렬하는 CSS
     st.markdown("""
     <style>
@@ -124,17 +131,23 @@ def main():
                 try:
                     if api_is_healthy:
                         with httpx.Client(timeout=30.0) as client:
-                            resp = client.post(f"{api_base_url}/chat", json={"message": q})
+                            resp = client.post(
+                                f"{api_base_url}/chat", 
+                                # 💡 수정: payload에 session_id 추가
+                                json={"message": q, "session_id": st.session_state["thread_id"]}
+                            )
                             resp.raise_for_status()
                             data = resp.json()
                             reply = data.get("reply",""); sources = data.get("sources", [])
                     else:
-                        out = pipeline(q)
+                        # 💡 수정: 로컬 폴백 모드에서도 session_id 전달 (사용되지는 않지만 API와의 일관성을 위해)
+                        out = pipeline(q, st.session_state["thread_id"])
                         reply = out.get("result",""); sources = out.get("sources", [])
                 
                 except httpx.ConnectError:
                     st.warning("API 서버에 연결할 수 없어 로컬 폴백 모드로 자동 전환하여 재시도합니다.")
-                    out = pipeline(q)
+                    # 💡 수정: 로컬 폴백 모드에서도 session_id 전달
+                    out = pipeline(q, st.session_state["thread_id"])
                     reply = out.get("result",""); sources = out.get("sources", [])
                 
                 except Exception as e:

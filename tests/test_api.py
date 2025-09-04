@@ -7,6 +7,7 @@ import json
 import re
 import pytest
 from fastapi.testclient import TestClient
+import uuid
 
 from helpdesk_bot.api import api
 from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore
@@ -50,6 +51,10 @@ def run_api_test(client, endpoint, payload, expected_status, expected_keys=None,
         expected_keys: 응답 JSON에 포함되어야 하는 키 목록 (Optional)
         additional_assertions: 추가적인 커스텀 검증 함수 (Optional)
     """
+    # payload에 session_id가 없으면 임의의 UUID를 추가
+    if "session_id" not in payload:
+        payload["session_id"] = str(uuid.uuid4())
+        
     # 1. API 요청 실행
     response = client.post(endpoint, json=payload)
     
@@ -104,10 +109,11 @@ def test_rag_flow_integration(client):
             assert "복잡한 질문에 답변할 수 없습니다" in data["reply"]
             assert len(data["sources"]) == 0
 
+    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
-        payload={"message": "ID 발급 절차 알려줘"},
+        payload={"message": "ID 발급 절차 알려줘", "session_id": str(uuid.uuid4())},
         expected_status=200,
         expected_keys=["reply", "intent", "sources"],
         additional_assertions=assert_rag_response
@@ -122,10 +128,11 @@ def test_tool_owner_lookup_integration(client):
         assert "담당자" in data["reply"]
         assert "홍길동" in data["reply"]
     
+    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
-        payload={"message": "인사시스템 사용자관리 담당자 알려줘"},
+        payload={"message": "인사시스템 사용자관리 담당자 알려줘", "session_id": str(uuid.uuid4())},
         expected_status=200,
         expected_keys=["reply", "intent"],
         additional_assertions=assert_owner_lookup_response
@@ -139,10 +146,11 @@ def test_tool_reset_password_integration(client):
         assert data["intent"] == "reset_password"
         assert "비밀번호 초기화 안내" in data["reply"]
 
+    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
-        payload={"message": "비밀번호 초기화"},
+        payload={"message": "비밀번호 초기화", "session_id": str(uuid.uuid4())},
         expected_status=200,
         expected_keys=["reply", "intent"],
         additional_assertions=assert_reset_pw_response
@@ -157,10 +165,11 @@ def test_tool_request_id_integration(client):
         assert "ID 발급 신청" in data["reply"]
         assert re.search(r"REQ-\d+", data["reply"])
     
+    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
-        payload={"message": "계정 발급 신청"},
+        payload={"message": "계정 발급 신청", "session_id": str(uuid.uuid4())},
         expected_status=200,
         expected_keys=["reply", "intent"],
         additional_assertions=assert_request_id_response
