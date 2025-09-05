@@ -25,6 +25,7 @@ dependencies = [
     "langchain-openai>=0.1.8",
     "langgraph>=0.2.14",
     "faiss-cpu>=1.8.0",
+    "pykospacing>=0.5",  # 💡 추가: PyKoSpacing 라이브러리
 
     # Loaders
     "pypdf>=4.2.0",
