@@ -17,7 +17,6 @@ from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
 from konlpy.tag import Okt
-# import kss # kss는 제거합니다.
 
 # =============================================================
 # 1. 공통 설정 / 환경 변수
@@ -62,7 +61,8 @@ KB_DATA_DIR = Path("./kb_data")
 INDEX_DIR = Path("./index")
 INDEX_NAME = "faiss_index"
 
-# 샘플 데이터
+# 상수 항목 및 샘플데이터
+# 샘플데이터
 OWNER_FALLBACK = {
     "인사시스템-사용자관리": {"owner": "홍길동", "email": "owner.hr@example.com", "phone": "010-1234-5678"},
     "재무시스템-정산화면": {"owner": "김재무", "email": "owner.fa@example.com", "phone": "010-2222-3333"},
@@ -72,6 +72,13 @@ EMPLOYEE_DIR = {
     "kim.s": {"name": "김선니", "dept": "IT운영", "phone": "010-1111-2222", "status": "active"},
     "lee.a": {"name": "이알파", "dept": "보안", "phone": "010-3333-4444", "status": "active"},
 }
+# 답변 제목
+PREFIX_MESSAGES = {
+    "ok": "[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n",
+    "fail": "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
+}
+# 인사말 키워드
+GREETINGS = ["안녕", "안녕하세요", "하이", "반가워", "헬로우", "hi", "hello"]
 
 # Okt 형태소 분석기 초기화
 okt = Okt()
@@ -335,14 +342,8 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
 
-    PREFIX_MESSAGES = {
-    "ok": "[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n",
-    "fail": "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
-    }
-
     faq_answer = find_similar_faq(question)
     if faq_answer:
-        #prefix_message = prefix_message_ok
         prefix_message = PREFIX_MESSAGES["ok"]
         return {
             "result": prefix_message + faq_answer,
@@ -352,17 +353,14 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
-        #prefix_message = prefix_message_ok
         prefix_message = PREFIX_MESSAGES["ok"]
         intent = "reset_password"
         tool_output = tool_reset_password({})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
-        #prefix_message = prefix_message_ok
         prefix_message = PREFIX_MESSAGES["ok"]
         intent = "request_id"
         tool_output = tool_request_id({})
     elif "담당자" in q:
-        #prefix_message = prefix_message_ok
         prefix_message = PREFIX_MESSAGES["ok"]
         screen = ""
         if "인사시스템" in q: screen = "인사시스템-사용자관리"
@@ -382,7 +380,6 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
             text = all_owners_text
             return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
-        #prefix_message = prefix_message_fail
         prefix_message = PREFIX_MESSAGES["fail"]
         no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
@@ -419,10 +416,9 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     """
     Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
     """
-
     corrected_question = question
+    
     # 간단한 인사말에 대한 응답 처리
-    GREETINGS = ["안녕", "안녕하세요", "하이", "반가워", "헬로우", "hi", "hello"]
     if corrected_question.lower().strip() in GREETINGS:
         return {
             "result": "네 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.",
