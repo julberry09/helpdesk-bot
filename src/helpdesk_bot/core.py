@@ -167,19 +167,20 @@ class BotState(TypedDict):
     sources: List[Dict[str, Any]]; tool_output: Dict[str, Any]
 
 def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
-    user = payload.get("user") or ""
-    if not user:
-        return {
-            "ok": False, 
-            "message": "네, 비밀번호 초기화가 필요한 사번 말해주세요. (질문포멧: EN999 비밀번호 초기화)"
-        }
-    found = EMPLOYEE_DIR.get(user)
-    if not found:
-        return {"ok": False, "message": "사번이 확인되지 않습니다."}
-    return {"ok": True, "message": f"{found['name']}님의 비밀번호 초기화 절차 안내", "steps": ["SSO 포털 접속 > 비밀번호 재설정", "본인인증", "새 비밀번호 설정"]}
+    """비밀번호 초기화 절차를 안내합니다."""
+    return {
+        "ok": True, 
+        "message": "비밀번호 초기화 절차 안내", 
+        "steps": ["SSO 포털 접속 > 비밀번호 재설정", "본인인증", "새 비밀번호 설정"]
+    }
 
 def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return {"ok": True, "message": "ID 발급 신청이 접수되었습니다.", "ticket": f"REQ-{int(_time.time())}"}
+    """ID 발급 신청 절차를 안내합니다."""
+    return {
+        "ok": True, 
+        "message": "ID 발급 신청 절차 안내", 
+        "steps": ["HR 포털 접속 > '계정 신청' 양식 제출", "양식 승인 후 IT팀에서 계정 생성"]
+    }
 
 def tool_owner_lookup(payload: Dict[str, Any]) -> Dict[str, Any]:
     screen = payload.get("screen") or ""
@@ -335,7 +336,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
         intent = "reset_password"
-        tool_output = tool_reset_password({"user": ""})
+        tool_output = tool_reset_password({})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
         intent = "request_id"
         tool_output = tool_request_id({})
@@ -358,7 +359,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
     if intent == "reset_password":
         text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
     elif intent == "request_id":
-        text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
+        text = f"🆔 ID 발급 신청\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
     else:
         text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
 
