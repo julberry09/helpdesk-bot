@@ -25,11 +25,11 @@ dependencies = [
     "langchain-openai>=0.1.8",
     "langgraph>=0.2.14",
     "faiss-cpu>=1.8.0",
-    "pykospacing>=0.5",  # 💡 추가: PyKoSpacing 라이브러리
+    "kss>=4.5.4",  # 💡 pykospacing 대신 kss 라이브러리 추가
 
     # Loaders
     "pypdf>=4.2.0",
-    "docx2txt>=0.8", # requirements.txt의 python-docx를 코드가 사용하는 docx2txt로 수정
+    "docx2txt>=0.8",
 
     # Version Pinning
     "numpy>=1.26.4,<2.0.0",

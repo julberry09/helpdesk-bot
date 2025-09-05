@@ -16,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
+import kss
 
 # =============================================================
 # 1. 공통 설정 / 환경 변수
@@ -72,7 +73,7 @@ EMPLOYEE_DIR = {
 }
 
 # =============================================================
-# 2. RAG 유틸리티
+# 4. Fallback & Main Pipelines
 # =============================================================
 def _make_embedder() -> AzureOpenAIEmbeddings:
     if not AZURE_AVAILABLE:
@@ -377,9 +378,19 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
     return out
 
 def pipeline(question: str, session_id: str) -> Dict[str, Any]:
-    """Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다."""
+    """
+    Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
+    """
+    # 💡 수정: kss를 이용한 띄어쓰기 교정
+    # kss는 문장 분리 기능도 포함하고 있어, 먼저 문장을 분리한 후 다시 합칩니다.
+    sentences = kss.split_sentences(question)
+    corrected_question = " ".join(sentences)
+
+    logger.info("kss_in", extra={"extra_data": {"raw": question}})
+    logger.info("kss_out", extra={"extra_data": {"corrected": corrected_question}})
+
     GREETINGS = ["안녕", "안녕하세요", "하이", "반가워", "헬로우", "hi", "hello"]
-    if question.lower().strip() in GREETINGS:
+    if corrected_question.lower().strip() in GREETINGS:
         return {
             "result": "네 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.",
             "intent": "greeting",
@@ -387,7 +398,6 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
         }
 
     if AZURE_AVAILABLE:
-        return run_graph_pipeline(question, session_id)
+        return run_graph_pipeline(corrected_question, session_id)
     else:
-        # 폴백 모드는 메모리가 필요 없으므로 기존대로 호출
-        return fallback_pipeline(question)
+        return fallback_pipeline(corrected_question)
