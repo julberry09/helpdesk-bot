@@ -17,7 +17,7 @@ from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
 from konlpy.tag import Okt
-import kss
+# import kss # kss는 제거합니다.
 
 # =============================================================
 # 1. 공통 설정 / 환경 변수
@@ -72,6 +72,9 @@ EMPLOYEE_DIR = {
     "kim.s": {"name": "김선니", "dept": "IT운영", "phone": "010-1111-2222", "status": "active"},
     "lee.a": {"name": "이알파", "dept": "보안", "phone": "010-3333-4444", "status": "active"},
 }
+
+# Okt 형태소 분석기 초기화
+okt = Okt()
 
 # =============================================================
 # 4. Fallback & Main Pipelines
@@ -280,6 +283,8 @@ def load_faq_data() -> List[Dict[str, str]]:
         with open(faq_file_path, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # FAQ 질문을 미리 형태소 분석하여 저장
+                row["faq_words"] = set(okt.phrases(row.get("question", "")))
                 loaded_data.append(row)
         logger.info(f"{len(loaded_data)}개의 FAQ 데이터를 로드했습니다.")
     except Exception as e:
@@ -294,7 +299,14 @@ def find_similar_faq(question: str) -> Optional[str]:
     if not faq_data:
         return None
 
-    user_words = set(question.lower().split())
+    # 사용자 질문을 형태소 분석
+    user_words = set(okt.phrases(question.lower()))
+    
+    # 만약 phrases()가 제대로 된 키워드를 추출하지 못할 경우를 대비하여
+    # 명사 추출을 추가로 시도하여 보강합니다.
+    if not user_words:
+        user_words = set(okt.nouns(question.lower()))
+
     if not user_words:
         return None
     
@@ -302,8 +314,7 @@ def find_similar_faq(question: str) -> Optional[str]:
     best_answer = None
     
     for item in faq_data:
-        faq_question = item.get("question", "")
-        faq_words = set(faq_question.lower().split())
+        faq_words = item.get("faq_words", set())
         
         if not faq_words:
             continue
@@ -323,15 +334,16 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
-    
-    # 답변이 가능할 때의 상단 메시지
-    prefix_message_ok = "[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n"
-    # 답변이 불가능할 때의 상단 메시지
-    prefix_message_fail = "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
+
+    PREFIX_MESSAGES = {
+    "ok": "[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n",
+    "fail": "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
+    }
 
     faq_answer = find_similar_faq(question)
     if faq_answer:
-        prefix_message = prefix_message_ok
+        #prefix_message = prefix_message_ok
+        prefix_message = PREFIX_MESSAGES["ok"]
         return {
             "result": prefix_message + faq_answer,
             "intent": "faq",
@@ -340,15 +352,18 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
-        prefix_message = prefix_message_ok
+        #prefix_message = prefix_message_ok
+        prefix_message = PREFIX_MESSAGES["ok"]
         intent = "reset_password"
         tool_output = tool_reset_password({})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
-        prefix_message = prefix_message_ok
+        #prefix_message = prefix_message_ok
+        prefix_message = PREFIX_MESSAGES["ok"]
         intent = "request_id"
         tool_output = tool_request_id({})
     elif "담당자" in q:
-        prefix_message = prefix_message_ok
+        #prefix_message = prefix_message_ok
+        prefix_message = PREFIX_MESSAGES["ok"]
         screen = ""
         if "인사시스템" in q: screen = "인사시스템-사용자관리"
         elif "재무시스템" in q: screen = "재무시스템-정산화면"
@@ -367,7 +382,8 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
             text = all_owners_text
             return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
-        prefix_message = prefix_message_fail
+        #prefix_message = prefix_message_fail
+        prefix_message = PREFIX_MESSAGES["fail"]
         no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
             "result": prefix_message + no_match_message,
@@ -387,7 +403,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
 _graph = None
 def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
-        # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
+    # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
     """LangGraph 기반의 AI 파이프라인을 실행합니다."""
     global _graph
     logger.info("pipeline_in", extra={"extra_data": {"q": question}})
@@ -404,21 +420,8 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
     """
 
-    # Okt를 이용한 띄어쓰기 교정
-    #okt = Okt()
-    
-    # Okt로 형태소를 분리하고, 불용어 등을 제거한 후 공백으로 다시 합칩니다.
-    #words = okt.phrases(question) # phrases는 어절을 추출하는 기능으로 띄어쓰기 보정에 효과적
-    #corrected_question_okt = " ".join(words)
-    
-    # kss는 문장 분리 기능도 포함하고 있어, 먼저 문장을 분리한 후 다시 합칩니다.
-    sentences = kss.split_sentences(question)
-    corrected_question = " ".join(sentences)
-
-    logger.info("spacing_correction_in", extra={"extra_data": {"raw": question}})
-    #logger.info("spacing_correction_out1", extra={"extra_data": {"corrected1": corrected_question_okt}})
-    logger.info("spacing_correction_out2", extra={"extra_data": {"corrected2": corrected_question}})
-
+    corrected_question = question
+    # 간단한 인사말에 대한 응답 처리
     GREETINGS = ["안녕", "안녕하세요", "하이", "반가워", "헬로우", "hi", "hello"]
     if corrected_question.lower().strip() in GREETINGS:
         return {
