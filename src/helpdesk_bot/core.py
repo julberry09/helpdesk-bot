@@ -323,7 +323,7 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
-    prefix_message = "[안내] 현재는 기본 모드로 동작하며, FAQ와 주요 업무 기능(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
+    prefix_message = "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
     
     faq_answer = find_similar_faq(question)
     if faq_answer:
@@ -345,10 +345,21 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
         if "인사시스템" in q: screen = "인사시스템-사용자관리"
         elif "재무시스템" in q: screen = "재무시스템-정산화면"
         elif "포털" in q: screen = "포털-공지작성"
+        
         intent = "owner_lookup"
-        tool_output = tool_owner_lookup({"screen": screen})
+        if screen:
+            tool_output = tool_owner_lookup({"screen": screen})
+            res = tool_output
+            text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
+        else: # 담당자 조회만 요청했을 경우
+            all_owners_text = "✨ **담당자 조회 가능 목록** ✨\n\n"
+            for s, info in OWNER_FALLBACK.items():
+                all_owners_text += f"**- {s.split('-')[0]} 담당자:** {info.get('owner')}\n"
+            all_owners_text += "\n\n**Tip:** '인사시스템 담당자 누구야?'처럼 구체적인 시스템명을 입력하면 더 자세한 정보를 얻을 수 있습니다."
+            text = all_owners_text
+            return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
-        no_match_message = "죄송합니다. 복잡한 질문에 답변할 수 없습니다.\n'비밀번호 초기화', 'ID 발급', '담당자 조회' 관련된 것만 가능합니다."
+        no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
             "result": prefix_message + no_match_message,
             "intent": "fallback_no_match",
