@@ -16,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
+from konlpy.tag import Okt
 import kss
 
 # =============================================================
@@ -381,13 +382,21 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     """
     Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
     """
-    # 💡 수정: kss를 이용한 띄어쓰기 교정
+
+    # Okt를 이용한 띄어쓰기 교정
+    #okt = Okt()
+    
+    # Okt로 형태소를 분리하고, 불용어 등을 제거한 후 공백으로 다시 합칩니다.
+    #words = okt.phrases(question) # phrases는 어절을 추출하는 기능으로 띄어쓰기 보정에 효과적
+    #corrected_question_okt = " ".join(words)
+    
     # kss는 문장 분리 기능도 포함하고 있어, 먼저 문장을 분리한 후 다시 합칩니다.
     sentences = kss.split_sentences(question)
     corrected_question = " ".join(sentences)
 
-    logger.info("kss_in", extra={"extra_data": {"raw": question}})
-    logger.info("kss_out", extra={"extra_data": {"corrected": corrected_question}})
+    logger.info("spacing_correction_in", extra={"extra_data": {"raw": question}})
+    #logger.info("spacing_correction_out1", extra={"extra_data": {"corrected1": corrected_question_okt}})
+    logger.info("spacing_correction_out2", extra={"extra_data": {"corrected2": corrected_question}})
 
     GREETINGS = ["안녕", "안녕하세요", "하이", "반가워", "헬로우", "hi", "hello"]
     if corrected_question.lower().strip() in GREETINGS:
