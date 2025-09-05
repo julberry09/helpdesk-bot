@@ -323,10 +323,15 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
-    prefix_message = "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
     
+    # 답변이 가능할 때의 상단 메시지
+    prefix_message_ok = "[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n"
+    # 답변이 불가능할 때의 상단 메시지
+    prefix_message_fail = "[안내] 현재는 '기본 모드'로 운영되며, 자주 묻는 질문(FAQ) 및 핵심 업무(비밀번호 초기화, ID 발급 신청, 담당자 조회)만 지원합니다.\n\n---\n\n"
+
     faq_answer = find_similar_faq(question)
     if faq_answer:
+        prefix_message = prefix_message_ok
         return {
             "result": prefix_message + faq_answer,
             "intent": "faq",
@@ -335,12 +340,15 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
+        prefix_message = prefix_message_ok
         intent = "reset_password"
         tool_output = tool_reset_password({})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
+        prefix_message = prefix_message_ok
         intent = "request_id"
         tool_output = tool_request_id({})
     elif "담당자" in q:
+        prefix_message = prefix_message_ok
         screen = ""
         if "인사시스템" in q: screen = "인사시스템-사용자관리"
         elif "재무시스템" in q: screen = "재무시스템-정산화면"
@@ -359,6 +367,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
             text = all_owners_text
             return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
+        prefix_message = prefix_message_fail
         no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
             "result": prefix_message + no_match_message,
@@ -387,7 +396,7 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
         input={"question": question, "intent":"", "result":"", "sources":[], "tool_output":{}},
         config={"configurable": {"thread_id": session_id}}
     )
-    logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent","")}})
+    logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent", "")}})
     return out
 
 def pipeline(question: str, session_id: str) -> Dict[str, Any]:
