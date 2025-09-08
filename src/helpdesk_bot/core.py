@@ -388,11 +388,11 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
     if "비밀번호" in q or "초기화" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "reset_password"
-        tool_output = tool_reset_password(payload={})
+        tool_output = tool_reset_password.invoke({})  # <<-- 이 부분을 .invoke({}) 로 수정
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "request_id"
-        tool_output = tool_request_id(payload={})
+        tool_output = tool_request_id.invoke({})   # <<-- 이 부분을 .invoke({}) 로 수정
     elif "담당자" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         screen = ""
@@ -402,7 +402,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
         
         intent = "owner_lookup"
         if screen:
-            tool_output = tool_owner_lookup(payload={"screen": screen})
+            tool_output = tool_owner_lookup.invoke({"screen": screen}) # <<-- 이 부분을 .invoke({}) 로 수정
             res = tool_output
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         else:

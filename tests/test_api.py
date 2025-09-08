@@ -182,3 +182,54 @@ def test_tool_request_id_integration(client):
         expected_keys=["reply", "intent"],
         additional_assertions=assert_request_id_response
     )
+
+# =============================================================
+# 3. 새로운 테스트: 담당자 조회 시나리오
+# =============================================================
+
+def test_owner_lookup_no_screen(client):
+    """
+    '담당자' 키워드만 입력했을 때 전체 담당자 목록을 안내하는지 테스트합니다.
+    (폴백 모드에서만 해당)
+    """
+    # Azure가 사용 가능한 경우 이 테스트는 스킵
+    if AZURE_AVAILABLE:
+        pytest.skip("이 테스트는 폴백 모드(Azure 비활성화)에서만 실행됩니다.")
+
+    def assert_owner_list_response(data, response):
+        assert data["intent"] == "owner_lookup"
+        assert "✨ **담당자 조회 가능 목록**" in data["reply"]
+        assert "인사시스템" in data["reply"]
+        assert "재무시스템" in data["reply"]
+    
+    run_api_test(
+        client,
+        endpoint="/chat",
+        payload={"message": "담당자 알려줘", "session_id": str(uuid.uuid4())},
+        expected_status=200,
+        expected_keys=["reply", "intent"],
+        additional_assertions=assert_owner_list_response
+    )
+
+def test_owner_lookup_specific_screen(client):
+    """
+    '인사시스템 담당자'와 같이 특정 시스템명을 입력했을 때 해당 담당자 정보를 반환하는지 테스트합니다.
+    """
+    def assert_specific_owner_response(data, response):
+        if AZURE_AVAILABLE:
+            assert data["intent"] == "agent_action"
+        else:
+            assert data["intent"] == "owner_lookup"
+        
+        # '홍길동' 이름과 이메일 주소가 응답에 포함되어 있는지 확인
+        assert "홍길동" in data["reply"]
+        assert "owner.hr@example.com" in data["reply"]
+    
+    run_api_test(
+        client,
+        endpoint="/chat",
+        payload={"message": "인사시스템 담당자 누구야?", "session_id": str(uuid.uuid4())},
+        expected_status=200,
+        expected_keys=["reply", "intent"],
+        additional_assertions=assert_specific_owner_response
+    )

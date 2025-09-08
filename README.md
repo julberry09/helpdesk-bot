@@ -181,7 +181,7 @@ streamlit run src/helpdesk_bot/ui.py --server.port 8507
 pytest
 
 # 테스트 수행 및 로그파일로 저장
-pytest > logs/test_results.log
+pytest > logs/test_results.txt
 
 ```
 `pytest`가 `tests` 폴더를 자동으로 찾아 모든 테스트를 실행하고, 전부 `PASSED`로 표시되면 성공입니다.
