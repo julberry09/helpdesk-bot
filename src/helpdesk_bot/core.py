@@ -193,35 +193,14 @@ def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
 @tool
 def tool_owner_lookup(payload: Dict[str, Any]) -> Dict[str, Any]:
     """화면이나 메뉴의 담당자 정보를 조회합니다. `screen` 인자가 필요합니다."""
-    screen = payload.get("screen") or ""
-    info = constants.OWNER_FALLBACK.get(screen)
-    if not info:
-        return {"ok": False, "message": f"'{screen}' 담당자 정보를 찾지 못했습니다."}
-    return {"ok": True, "screen": screen, "owner": info}
-
-# 노드(Node) 함수
-# Prompt Engineering - 사용자 의도 분석, 다양한 질문에 일관된 응답을 도출하도록 설계 (프롬프트 재사용성) [checklist: 2]
-# def node_classify(state: BotState) -> BotState:
-#     llm = make_llm()
-#     sys_prompt = ("당신은 사내 헬프데스크 라우터입니다. 사용자 입력을 reset_password, request_id, owner_lookup, rag_qa 중 하나로 분류하세요. JSON(intent, arguments)으로만 답하세요.")
-#     msg = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": state["question"]}]
-#     out = llm.invoke(msg).content
-#     intent, args = "rag_qa", {}
-#     try:
-#         data = json.loads(out)
-#         intent = data.get("intent", "rag_qa")
-#         args = data.get("arguments", {}) or {}
-#     except json.JSONDecodeError:
-#         logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
-#     except Exception:
-#         logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
-#     return {**state, "intent": intent, "tool_output": args}
-
-# def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}
-
-# def node_request_id(state: BotState) -> BotState: return {**state, "tool_output": tool_request_id(state.get("tool_output", {}))}
-
-# def node_owner_lookup(state: BotState) -> BotState: return {**state, "tool_output": tool_owner_lookup(state.get("tool_output", {}))}
+    try:
+        screen = payload.get("screen") or ""
+        info = constants.OWNER_FALLBACK.get(screen)
+        if not info:
+            return {"ok": False, "message": f"'{screen}' 담당자 정보를 찾지 못했습니다."}
+        return {"ok": True, "screen": screen, "owner": info}
+    except Exception as e:
+        return {"ok": False, "message": f"도구 실행 중 오류가 발생했습니다: {str(e)}"}
 
 # RAG - 사전 정의된 데이터(문서)를 검색하여 AI의 논리력을 보강/ RAG 기반 지식 검색 기능 구현 [checklist: 8,9] 
 # Prompt Engineering - 프롬프트 최적화 (역할 부여 + Chain-of-Thought) [checklist: 1] 
@@ -263,14 +242,25 @@ def _make_agent_executor():
 def node_agent(state: BotState) -> BotState:
     """AgentExecutor를 실행하여 도구 사용 및 답변을 생성합니다."""
     agent_executor = _make_agent_executor()
-    out = agent_executor.invoke({"input": state["question"]})
-    # TODO: AgentExecutor의 output을 BotState의 result에 맞게 파싱하는 로직 추가
-    return {**state, "result": out["output"], "intent": "agent_action"}
+    try:
+        out = agent_executor.invoke({"input": state["question"]})
+        # 에이전트 출력에 'output' 키가 있는지 확인
+        if "output" in out:
+            return {**state, "result": out["output"], "intent": "agent_action"}
+        else:
+            # 예기치 않은 에이전트 출력 형식에 대한 처리
+            logger.error(f"[Agent 오류] 예상치 못한 에이전트 출력: {out}")
+            return {**state, "result": "죄송합니다. 에이전트 실행 중 오류가 발생했습니다.", "intent": "agent_error"}
+    except Exception as e:
+        # 에이전트 실행 중 발생한 모든 예외를 잡아서 처리
+        logger.error(f"[Agent 오류] 에이전트 실행 중 예외 발생: {str(e)}")
+        return {**state, "result": "죄송합니다. 에이전트 실행 중 예상치 못한 문제가 발생했습니다. 다시 시도해 주세요.", "intent": "agent_error"}
 
 # =============================================================
 # 4. LangGraph (도구 + 노드)
 # ==========================================================
 # LangChain & LangGraph - Multi Agent 형태의 Agent Flow 설계 및 구현/ ReAct (Reasoning and Acting) 사용/ 멀티턴 대화 (memory) [checklist: 3,4,5]
+# 추가: LangGraph Studio (UI 기반 그래프 시각화 툴)를 활용하여 그래프 모니터링 및 디버깅 가능합니다.
 _memory_checkpointer = MemorySaver()
 _graph = None
 def build_graph():
@@ -283,7 +273,32 @@ def build_graph():
     
     return g.compile(checkpointer=_memory_checkpointer)
 
-#     # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
+# 노드(Node) 함수
+# Prompt Engineering - 사용자 의도 분석, 다양한 질문에 일관된 응답을 도출하도록 설계 (프롬프트 재사용성) [checklist: 2]
+# def node_classify(state: BotState) -> BotState:
+#     llm = make_llm()
+#     sys_prompt = ("당신은 사내 헬프데스크 라우터입니다. 사용자 입력을 reset_password, request_id, owner_lookup, rag_qa 중 하나로 분류하세요. JSON(intent, arguments)으로만 답하세요.")
+#     msg = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": state["question"]}]
+#     out = llm.invoke(msg).content
+#     intent, args = "rag_qa", {}
+#     try:
+#         data = json.loads(out)
+#         intent = data.get("intent", "rag_qa")
+#         args = data.get("arguments", {}) or {}
+#     except json.JSONDecodeError:
+#         logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
+#     except Exception:
+#         logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
+#     return {**state, "intent": intent, "tool_output": args}
+# 
+# def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}
+# def node_request_id(state: BotState) -> BotState: return {**state, "tool_output": tool_request_id(state.get("tool_output", {}))}
+# def node_owner_lookup(state: BotState) -> BotState: return {**state, "tool_output": tool_owner_lookup(state.get("tool_output", {}))}
+# 
+# #StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
+# _memory_checkpointer = MemorySaver()
+# _graph = None
+# def build_graph():
 #     g = StateGraph(BotState)
 #     g.add_node("classify", node_classify)
 #     g.add_node("reset_password", node_reset_pw)
@@ -331,10 +346,8 @@ def find_similar_faq(question: str) -> Optional[str]:
     faq_data = load_faq_data()
     if not faq_data:
         return None
-
     # 사용자 질문을 형태소 분석
-    user_words = set(okt.phrases(question.lower()))
-    
+    user_words = set(okt.phrases(question.lower())) 
     # 만약 phrases()가 제대로 된 키워드를 추출하지 못할 경우를 대비하여
     # 명사 추출을 추가로 시도하여 보강합니다.
     if not user_words:
