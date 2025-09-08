@@ -180,6 +180,38 @@ pytest
 
 ---
 
+### 6단계: LangGraph Studio 활용 (선택 사항)
+LangGraph Studio를 사용하면 챗봇의 복잡한 대화 흐름을 시각적으로 모니터링하고 디버깅할 수 있습니다. 이를 위해 추가 설정이 필요합니다.
+
+1. LangGraph Studio 설치
+아래 명령어를 사용하여 langgraph-studio를 설치합니다.
+
+```bash
+pip install "langgraph-studio[server]"
+```
+
+2. 환경 변수 설정
+.env 파일에 LangSmith API 키와 프로젝트 이름을 추가해야 합니다.
+
+```bash
+# .env
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT=your-project-name
+```
+your-project-name은 LangSmith 웹사이트에서 생성할 프로젝트 이름입니다.
+
+3. LangGraph Studio 서버 실행
+별도의 터미널에서 아래 명령어를 실행합니다.
+
+```bash
+langgraph-studio --host 0.0.0.0 --port 8100
+```
+
+웹 브라우저에서 http://localhost:8100에 접속하면 LangGraph Studio UI가 표시됩니다. 이제 챗봇을 실행하고 대화를 하면, 대화 기록이 실시간으로 이 스튜디오에 표시됩니다.
+
+
+---
+
 ## 🐳 Docker 실행 가이드
 `docker-compose`를 사용하여 API와 UI 컨테이너를 한 번에 실행할 수 있습니다.
 

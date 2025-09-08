@@ -20,6 +20,9 @@ from konlpy.tag import Okt
 from langchain.tools import tool
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
+# LangSmith를 위한 CallbackManager 임포트
+from langchain.callbacks.manager import CallbackManager
+from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
 from . import constants
 
@@ -76,7 +79,7 @@ def _make_embedder() -> AzureOpenAIEmbeddings:
         azure_endpoint=AOAI_ENDPOINT,
         api_version=AOAI_API_VERSION,
     )
-    
+
 # RAG - 원본 데이터 수집 및 전처리 로직 [checklist: 6] 
 def _load_docs_from_kb() -> List[Document]:
     docs: List[Document] = []
@@ -440,11 +443,28 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
     # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
     """LangGraph 기반의 AI 파이프라인을 실행합니다."""
     global _graph
+    
+    # LangSmith 콜백 핸들러 설정
+    langsmith_api_key = os.getenv("LANGSMITH_API_KEY")
+    langsmith_project_name = os.getenv("LANGSMITH_PROJECT", "Helpdesk Bot")
+    
+    callbacks = None
+    if langsmith_api_key:
+        callbacks = CallbackManager([
+            LangSmithCallbackHandler(
+                project_name=langsmith_project_name, 
+                api_key=langsmith_api_key, 
+                session_id=session_id
+            )
+        ])
+        logger.info("LangSmith is enabled.")
+
     logger.info("pipeline_in", extra={"extra_data": {"q": question}})
     if _graph is None: _graph = build_graph()
+    
     out = _graph.invoke(
         input={"question": question, "intent":"", "result":"", "sources":[], "tool_output":{}},
-        config={"configurable": {"thread_id": session_id}}
+        config={"configurable": {"thread_id": session_id}, "callbacks": callbacks}
     )
     logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent", "")}})
     return out
@@ -456,7 +476,7 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     corrected_question = question
     
     # 간단한 인사말에 대한 응답 처리
-    if corrected_question.lower().strip() in GREETINGS:
+    if corrected_question.lower().strip() in constants.GREETINGS:
         return {
             "result": "네 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.",
             "intent": "greeting",
