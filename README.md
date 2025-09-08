@@ -177,7 +177,12 @@ streamlit run src/helpdesk_bot/ui.py --server.port 8507
 프로젝트 최상위 폴더에서 아래 명령어를 실행하여 코드의 안정성을 검증합니다.
 
 ```bash
+# 테스트 수행
 pytest
+
+# 테스트 수행 및 로그파일로 저장
+pytest > logs/test_results.log
+
 ```
 `pytest`가 `tests` 폴더를 자동으로 찾아 모든 테스트를 실행하고, 전부 `PASSED`로 표시되면 성공입니다.
 

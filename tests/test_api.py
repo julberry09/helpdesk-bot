@@ -74,19 +74,6 @@ def run_api_test(client, endpoint, payload, expected_status, expected_keys=None,
 
     return data
 
-def _check_agent_or_fallback_response(data, expected_keywords, fallback_intent, fallback_message):
-    """
-    Azure 사용 가능 여부에 따라 다른 응답을 검증하는 유틸리티 함수
-    """
-    if AZURE_AVAILABLE:
-        # LLM 에이전트 모드: 답변 내용으로 검증
-        for kw in expected_keywords:
-            assert kw in data["reply"], f"응답 본문에 예상 키워드 '{kw}'가 없습니다."
-    else:
-        # 폴백 모드: intent와 미리 정의된 메시지로 검증
-        assert data["intent"] == fallback_intent
-        assert fallback_message in data["reply"]
-
 # =============================================================
 # 1. API 기본 동작 테스트
 # =============================================================
@@ -111,16 +98,14 @@ def test_rag_flow_integration(client):
     RAG 파이프라인의 전체 동작을 통합 테스트합니다.
     """
     def assert_rag_response(data, response):
-        _check_agent_or_fallback_response(
-            data,
-            expected_keywords=["HR 포털", "계정 신청"],
-            fallback_intent="fallback_no_match",
-            fallback_message="문의하신 내용에 대한 정보는 현재 답변이 어렵습니다"
-        )
         if AZURE_AVAILABLE:
-             assert len(data.get("sources", [])) > 0
+            assert "HR 포털" in data["reply"]
+            assert "계정 신청" in data["reply"]
+            assert len(data.get("sources", [])) > 0
         else:
-             assert len(data.get("sources", [])) == 0
+            assert data["intent"] == "fallback_no_match"
+            assert "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다" in data["reply"]
+            assert len(data.get("sources", [])) == 0
 
     run_api_test(
         client,
@@ -179,11 +164,14 @@ def test_tool_request_id_integration(client):
     """
     def assert_request_id_response(data, response):
         if AZURE_AVAILABLE:
+            # Azure가 연결되어 있을 때의 테스트 로직
             assert data["intent"] == "agent_action"
             assert "ID 발급" in data["reply"]
         else:
+            # Azure가 연결되어 있지 않을 때(Fallback)의 테스트 로직
             assert data["intent"] == "request_id"
             assert "ID 발급 신청" in data["reply"]
+            # 추가적인 응답 패턴 검증
             assert "접수됨" in data["reply"] or re.search(r"REQ-\d+", data["reply"])
 
     run_api_test(

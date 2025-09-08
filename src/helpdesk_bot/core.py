@@ -22,7 +22,7 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
 # LangSmith를 위한 CallbackManager 임포트
 from langchain.callbacks.manager import CallbackManager
-#from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
+# from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
 from . import constants
 
@@ -176,7 +176,7 @@ class BotState(TypedDict):
 
 # 도구(Tool) 함수 - LLM 에이전트가 사용
 @tool
-def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
+def tool_reset_password(payload: Dict[str, Any] = {}) -> Dict[str, Any]:
     """비밀번호 초기화 절차를 안내합니다."""
     return {
         "ok": True, 
@@ -185,7 +185,7 @@ def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @tool
-def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
+def tool_request_id(payload: Dict[str, Any] = {}) -> Dict[str, Any]:
     """ID 발급 신청 절차를 안내합니다."""
     return {
         "ok": True, 
@@ -255,9 +255,10 @@ def node_agent(state: BotState) -> BotState:
             logger.error(f"[Agent 오류] 예상치 못한 에이전트 출력: {out}")
             return {**state, "result": "죄송합니다. 에이전트 실행 중 오류가 발생했습니다.", "intent": "agent_error"}
     except Exception as e:
-        # 에이전트 실행 중 발생한 모든 예외를 잡아서 처리
-        logger.error(f"[Agent 오류] 에이전트 실행 중 예외 발생: {str(e)}")
-        return {**state, "result": "죄송합니다. 에이전트 실행 중 예상치 못한 문제가 발생했습니다. 다시 시도해 주세요.", "intent": "agent_error"}
+        logger.error(f"[Supervisor 오류] 알 수 없는 오류: {str(e)}")
+        intent = "rag_qa"
+
+    return {**state, "intent": intent, "tool_output": args}
 
 # =============================================================
 # 4. LangGraph (도구 + 노드)
@@ -381,25 +382,17 @@ def find_similar_faq(question: str) -> Optional[str]:
 def fallback_pipeline(question: str) -> Dict[str, Any]:
     """키워드 매칭 및 FAQ 검색을 통해 간단한 질문에 답변하는 폴백 함수"""
     logger.info("fallback_pipeline_in", extra={"extra_data": {"q": question}})
-
-    faq_answer = find_similar_faq(question)
-    if faq_answer:
-        prefix_message = constants.PREFIX_MESSAGES["ok"]
-        return {
-            "result": prefix_message + faq_answer,
-            "intent": "faq",
-            "sources": [{"source": "faq_data.csv"}]
-        }
-
+    
     q = question.lower()
+    # FAQ 검색보다 키워드 매칭을 우선하도록 순서 변경
     if "비밀번호" in q or "초기화" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "reset_password"
-        tool_output = tool_reset_password.invoke({})
+        tool_output = tool_reset_password(payload={})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "request_id"
-        tool_output = tool_request_id.invoke({})
+        tool_output = tool_request_id(payload={})
     elif "담당자" in q:
         prefix_message = constants.PREFIX_MESSAGES["ok"]
         screen = ""
@@ -409,7 +402,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
         
         intent = "owner_lookup"
         if screen:
-            tool_output = tool_owner_lookup.invoke({"screen": screen})
+            tool_output = tool_owner_lookup(payload={"screen": screen})
             res = tool_output
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         else:
@@ -420,6 +413,15 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
             text = all_owners_text
             return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
+        faq_answer = find_similar_faq(question)
+        if faq_answer:
+            prefix_message = constants.PREFIX_MESSAGES["ok"]
+            return {
+                "result": prefix_message + faq_answer,
+                "intent": "faq",
+                "sources": [{"source": "faq_data.csv"}]
+            }
+        
         prefix_message = constants.PREFIX_MESSAGES["fail"]
         no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
