@@ -1,4 +1,5 @@
 # tests/test_api.py
+
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -73,6 +74,19 @@ def run_api_test(client, endpoint, payload, expected_status, expected_keys=None,
 
     return data
 
+def _check_agent_or_fallback_response(data, expected_keywords, fallback_intent, fallback_message):
+    """
+    Azure 사용 가능 여부에 따라 다른 응답을 검증하는 유틸리티 함수
+    """
+    if AZURE_AVAILABLE:
+        # LLM 에이전트 모드: 답변 내용으로 검증
+        for kw in expected_keywords:
+            assert kw in data["reply"], f"응답 본문에 예상 키워드 '{kw}'가 없습니다."
+    else:
+        # 폴백 모드: intent와 미리 정의된 메시지로 검증
+        assert data["intent"] == fallback_intent
+        assert fallback_message in data["reply"]
+
 # =============================================================
 # 1. API 기본 동작 테스트
 # =============================================================
@@ -97,19 +111,17 @@ def test_rag_flow_integration(client):
     RAG 파이프라인의 전체 동작을 통합 테스트합니다.
     """
     def assert_rag_response(data, response):
-        assert data["intent"] in ["rag_qa", "fallback_no_match"]
-
+        _check_agent_or_fallback_response(
+            data,
+            expected_keywords=["HR 포털", "계정 신청"],
+            fallback_intent="fallback_no_match",
+            fallback_message="문의하신 내용에 대한 정보는 현재 답변이 어렵습니다"
+        )
         if AZURE_AVAILABLE:
-            assert "rag_qa" in data["intent"]
-            assert "ID 발급" in data["reply"]
-            assert isinstance(data.get("sources"), list)
-            assert len(data["sources"]) > 0
+             assert len(data.get("sources", [])) > 0
         else:
-            assert "fallback_no_match" in data["intent"]
-            assert "복잡한 질문에 답변할 수 없습니다" in data["reply"]
-            assert len(data["sources"]) == 0
+             assert len(data.get("sources", [])) == 0
 
-    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
@@ -124,11 +136,13 @@ def test_tool_owner_lookup_integration(client):
     '담당자 조회' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_owner_lookup_response(data, response):
-        assert data["intent"] == "owner_lookup"
-        assert "담당자" in data["reply"]
-        assert "홍길동" in data["reply"]
+        _check_agent_or_fallback_response(
+            data,
+            expected_keywords=["담당자", "홍길동"],
+            fallback_intent="owner_lookup",
+            fallback_message="홍길동"
+        )
     
-    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
@@ -143,10 +157,13 @@ def test_tool_reset_password_integration(client):
     '비밀번호 초기화' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_reset_pw_response(data, response):
-        assert data["intent"] == "reset_password"
-        assert "비밀번호 초기화 안내" in data["reply"]
+        _check_agent_or_fallback_response(
+            data,
+            expected_keywords=["비밀번호 초기화"],
+            fallback_intent="reset_password",
+            fallback_message="비밀번호 초기화"
+        )
 
-    # payload에 session_id 추가
     run_api_test(
         client,
         endpoint="/chat",
@@ -161,11 +178,16 @@ def test_tool_request_id_integration(client):
     'ID 발급 신청' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_request_id_response(data, response):
-        assert data["intent"] == "request_id"
-        assert "ID 발급 신청" in data["reply"]
-        assert re.search(r"REQ-\d+", data["reply"])
-    
-    # payload에 session_id 추가
+        _check_agent_or_fallback_response(
+            data,
+            expected_keywords=["ID 발급"],
+            fallback_intent="request_id",
+            fallback_message="ID 발급 신청"
+        )
+        if not AZURE_AVAILABLE:
+            assert "ID 발급 신청" in data["reply"]
+            assert "접수됨" in data["reply"] or re.search(r"REQ-\d+", data["reply"])
+
     run_api_test(
         client,
         endpoint="/chat",

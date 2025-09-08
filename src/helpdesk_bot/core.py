@@ -17,6 +17,9 @@ from langgraph.graph import StateGraph, END
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
 from konlpy.tag import Okt
+from langchain.tools import tool
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain import hub
 
 from . import constants
 
@@ -61,7 +64,7 @@ if not AZURE_AVAILABLE:
 okt = Okt()
 
 # =============================================================
-# 4. Fallback & Main Pipelines 
+# 2. RAG 및 LLM 관련 함수 정의
 # =============================================================
 # 임베딩 모델 생성
 def _make_embedder() -> AzureOpenAIEmbeddings:
@@ -72,11 +75,12 @@ def _make_embedder() -> AzureOpenAIEmbeddings:
         api_key=AOAI_API_KEY,
         azure_endpoint=AOAI_ENDPOINT,
         api_version=AOAI_API_VERSION,
+    )
     
 # RAG - 원본 데이터 수집 및 전처리 로직 [checklist: 6] 
 def _load_docs_from_kb() -> List[Document]:
     docs: List[Document] = []
-    for kb_path in [KB_DEFAULT_DIR, KB_DATA_DIR]:
+    for kb_path in [constants.KB_DEFAULT_DIR, constants.KB_DATA_DIR]:
         if not kb_path.exists():
             kb_path.mkdir(parents=True, exist_ok=True)
         for p in kb_path.rglob("*"):
@@ -98,8 +102,8 @@ def build_or_load_vectorstore() -> FAISS:
         raise RuntimeError("'Rebuild Index'는 Azure OpenAI 설정이 필요합니다.")
         
     embed = _make_embedder()
-    if (INDEX_DIR / f"{INDEX_NAME}.faiss").exists():
-        return FAISS.load_local(str(INDEX_DIR / INDEX_NAME), embeddings=embed, allow_dangerous_deserialization=True)
+    if (constants.INDEX_DIR / f"{constants.INDEX_NAME}.faiss").exists():
+        return FAISS.load_local(str(constants.INDEX_DIR / constants.INDEX_NAME), embeddings=embed, allow_dangerous_deserialization=True)
 
     raw_docs = _load_docs_from_kb()
     
@@ -122,10 +126,10 @@ def build_or_load_vectorstore() -> FAISS:
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
     chunks = splitter.split_documents(raw_docs)
-    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    constants.INDEX_DIR.mkdir(parents=True, exist_ok=True)
     # FAISS에 문서를 임베딩하고 저장
     vs = FAISS.from_documents(chunks, embed)
-    vs.save_local(str(INDEX_DIR / INDEX_NAME))
+    vs.save_local(str(constants.INDEX_DIR / constants.INDEX_NAME))
     return vs
 
 # RAG - FAISS 벡터 스토어 검색기 (Singleton Pattern)
@@ -158,14 +162,17 @@ def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> A
         api_key=AOAI_API_KEY,
         temperature=temperature,
     )
+
 # =============================================================
 # 3. LangGraph 도구 및 노드 정의
-# ==========================================================
+# =============================================================
 # 상태 관리 (State Management)
 class BotState(TypedDict):
     question: str; intent: str; result: str
     sources: List[Dict[str, Any]]; tool_output: Dict[str, Any]
-# 도구(Tool) 함수
+
+# 도구(Tool) 함수 - LLM 에이전트가 사용
+@tool
 def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
     """비밀번호 초기화 절차를 안내합니다."""
     return {
@@ -174,6 +181,7 @@ def tool_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
         "steps": ["SSO 포털 접속 > 비밀번호 재설정", "본인인증", "새 비밀번호 설정"]
     }
 
+@tool
 def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
     """ID 발급 신청 절차를 안내합니다."""
     return {
@@ -182,36 +190,38 @@ def tool_request_id(payload: Dict[str, Any]) -> Dict[str, Any]:
         "steps": ["HR 포털 접속 > '계정 신청' 양식 제출", "양식 승인 후 IT팀에서 계정 생성"]
     }
 
+@tool
 def tool_owner_lookup(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """화면이나 메뉴의 담당자 정보를 조회합니다. `screen` 인자가 필요합니다."""
     screen = payload.get("screen") or ""
-    info = OWNER_FALLBACK.get(screen)
+    info = constants.OWNER_FALLBACK.get(screen)
     if not info:
         return {"ok": False, "message": f"'{screen}' 담당자 정보를 찾지 못했습니다."}
     return {"ok": True, "screen": screen, "owner": info}
 
 # 노드(Node) 함수
 # Prompt Engineering - 사용자 의도 분석, 다양한 질문에 일관된 응답을 도출하도록 설계 (프롬프트 재사용성) [checklist: 2]
-def node_classify(state: BotState) -> BotState:
-    llm = make_llm()
-    sys_prompt = ("당신은 사내 헬프데스크 라우터입니다. 사용자 입력을 reset_password, request_id, owner_lookup, rag_qa 중 하나로 분류하세요. JSON(intent, arguments)으로만 답하세요.")
-    msg = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": state["question"]}]
-    out = llm.invoke(msg).content
-    intent, args = "rag_qa", {}
-    try:
-        data = json.loads(out)
-        intent = data.get("intent", "rag_qa")
-        args = data.get("arguments", {}) or {}
-    except json.JSONDecodeError:
-        logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
-    except Exception:
-        logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
-    return {**state, "intent": intent, "tool_output": args}
+# def node_classify(state: BotState) -> BotState:
+#     llm = make_llm()
+#     sys_prompt = ("당신은 사내 헬프데스크 라우터입니다. 사용자 입력을 reset_password, request_id, owner_lookup, rag_qa 중 하나로 분류하세요. JSON(intent, arguments)으로만 답하세요.")
+#     msg = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": state["question"]}]
+#     out = llm.invoke(msg).content
+#     intent, args = "rag_qa", {}
+#     try:
+#         data = json.loads(out)
+#         intent = data.get("intent", "rag_qa")
+#         args = data.get("arguments", {}) or {}
+#     except json.JSONDecodeError:
+#         logger.warning(f"[Supervisor JSON 오류] JSONDecodeError: {out}")
+#     except Exception:
+#         logger.error(f"[Supervisor 오류] 알 수 없는 오류: {out}")
+#     return {**state, "intent": intent, "tool_output": args}
 
-def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}
+# def node_reset_pw(state: BotState) -> BotState: return {**state, "tool_output": tool_reset_password(state.get("tool_output", {}))}
 
-def node_request_id(state: BotState) -> BotState: return {**state, "tool_output": tool_request_id(state.get("tool_output", {}))}
+# def node_request_id(state: BotState) -> BotState: return {**state, "tool_output": tool_request_id(state.get("tool_output", {}))}
 
-def node_owner_lookup(state: BotState) -> BotState: return {**state, "tool_output": tool_owner_lookup(state.get("tool_output", {}))}
+# def node_owner_lookup(state: BotState) -> BotState: return {**state, "tool_output": tool_owner_lookup(state.get("tool_output", {}))}
 
 # RAG - 사전 정의된 데이터(문서)를 검색하여 AI의 논리력을 보강/ RAG 기반 지식 검색 기능 구현 [checklist: 8,9] 
 # Prompt Engineering - 프롬프트 최적화 (역할 부여 + Chain-of-Thought) [checklist: 1] 
@@ -238,25 +248,56 @@ def node_finalize(state: BotState) -> BotState:
         return {**state, "result": text}
     return state
 
+# LLM 에이전트를 생성하는 함수
+_agent_executor: Optional[AgentExecutor] = None
+def _make_agent_executor():
+    """LangChain AgentExecutor를 생성합니다 (Singleton Pattern)."""
+    global _agent_executor
+    if _agent_executor is None:
+        tools = [tool_reset_password, tool_request_id, tool_owner_lookup]
+        llm = make_llm(model=AOAI_DEPLOY_GPT4O)
+        prompt = hub.pull("hwchase17/react")
+        _agent_executor = create_react_agent(llm=llm, tools=tools, prompt=prompt)
+    return _agent_executor
+
+def node_agent(state: BotState) -> BotState:
+    """AgentExecutor를 실행하여 도구 사용 및 답변을 생성합니다."""
+    agent_executor = _make_agent_executor()
+    out = agent_executor.invoke({"input": state["question"]})
+    # TODO: AgentExecutor의 output을 BotState의 result에 맞게 파싱하는 로직 추가
+    return {**state, "result": out["output"], "intent": "agent_action"}
+
+# =============================================================
+# 4. LangGraph (도구 + 노드)
+# ==========================================================
 # LangChain & LangGraph - Multi Agent 형태의 Agent Flow 설계 및 구현/ ReAct (Reasoning and Acting) 사용/ 멀티턴 대화 (memory) [checklist: 3,4,5]
 _memory_checkpointer = MemorySaver()
 _graph = None
 def build_graph():
-    # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
     g = StateGraph(BotState)
-    g.add_node("classify", node_classify)
-    g.add_node("reset_password", node_reset_pw)
-    g.add_node("request_id", node_request_id)
-    g.add_node("owner_lookup", node_owner_lookup)
+    g.add_node("agent", node_agent)
     g.add_node("rag", node_rag)
-    g.add_node("finalize", node_finalize)
-    g.set_entry_point("classify")
-    g.add_conditional_edges("classify", lambda s: s["intent"], {"reset_password":"finalize", "request_id":"finalize", "owner_lookup":"finalize", "rag":"rag"})
-    g.add_edge("finalize", END); g.add_edge("rag", END)
+    g.set_entry_point("agent")
+    g.add_conditional_edges("agent", lambda s: "I can't answer" in s["result"], {"rag": "rag", "__default__": END})
+    g.add_edge("rag", END)
+    
     return g.compile(checkpointer=_memory_checkpointer)
 
+#     # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
+#     g = StateGraph(BotState)
+#     g.add_node("classify", node_classify)
+#     g.add_node("reset_password", node_reset_pw)
+#     g.add_node("request_id", node_request_id)
+#     g.add_node("owner_lookup", node_owner_lookup)
+#     g.add_node("rag", node_rag)
+#     g.add_node("finalize", node_finalize)
+#     g.set_entry_point("classify")
+#     g.add_conditional_edges("classify", lambda s: s["intent"], {"reset_password":"finalize", "request_id":"finalize", "owner_lookup":"finalize", "rag":"rag"})
+#     g.add_edge("finalize", END); g.add_edge("rag", END)
+#     return g.compile(checkpointer=_memory_checkpointer)
+
 # =============================================================
-# 4. Fallback & Main Pipelines
+# 5. Fallback & Main Pipelines
 # =============================================================
 _faq_data = None
 def load_faq_data() -> List[Dict[str, str]]:
@@ -265,7 +306,7 @@ def load_faq_data() -> List[Dict[str, str]]:
     if _faq_data is not None:
         return _faq_data
     
-    faq_file_path = KB_DEFAULT_DIR / "faq_data.csv"
+    faq_file_path = constants.KB_DEFAULT_DIR / "faq_data.csv"
     if not faq_file_path.exists():
         _faq_data = []
         return _faq_data
@@ -298,7 +339,6 @@ def find_similar_faq(question: str) -> Optional[str]:
     # 명사 추출을 추가로 시도하여 보강합니다.
     if not user_words:
         user_words = set(okt.nouns(question.lower()))
-
     if not user_words:
         return None
     
@@ -307,7 +347,6 @@ def find_similar_faq(question: str) -> Optional[str]:
     
     for item in faq_data:
         faq_words = item.get("faq_words", set())
-        
         if not faq_words:
             continue
         
@@ -329,7 +368,7 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
     faq_answer = find_similar_faq(question)
     if faq_answer:
-        prefix_message = PREFIX_MESSAGES["ok"]
+        prefix_message = constants.PREFIX_MESSAGES["ok"]
         return {
             "result": prefix_message + faq_answer,
             "intent": "faq",
@@ -338,15 +377,15 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
 
     q = question.lower()
     if "비밀번호" in q or "초기화" in q:
-        prefix_message = PREFIX_MESSAGES["ok"]
+        prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "reset_password"
-        tool_output = tool_reset_password({})
+        tool_output = tool_reset_password.invoke({})
     elif "id" in q or "계정" in q or "아이디" in q or "발급" in q:
-        prefix_message = PREFIX_MESSAGES["ok"]
+        prefix_message = constants.PREFIX_MESSAGES["ok"]
         intent = "request_id"
-        tool_output = tool_request_id({})
+        tool_output = tool_request_id.invoke({})
     elif "담당자" in q:
-        prefix_message = PREFIX_MESSAGES["ok"]
+        prefix_message = constants.PREFIX_MESSAGES["ok"]
         screen = ""
         if "인사시스템" in q: screen = "인사시스템-사용자관리"
         elif "재무시스템" in q: screen = "재무시스템-정산화면"
@@ -354,18 +393,18 @@ def fallback_pipeline(question: str) -> Dict[str, Any]:
         
         intent = "owner_lookup"
         if screen:
-            tool_output = tool_owner_lookup({"screen": screen})
+            tool_output = tool_owner_lookup.invoke({"screen": screen})
             res = tool_output
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
-        else: # 담당자 조회만 요청했을 경우
+        else:
             all_owners_text = "✨ **담당자 조회 가능 목록** ✨\n\n"
-            for s, info in OWNER_FALLBACK.items():
+            for s, info in constants.OWNER_FALLBACK.items():
                 all_owners_text += f"**- {s.split('-')[0]} 담당자:** {info.get('owner')}\n"
             all_owners_text += "\n\n**Tip:** '인사시스템 담당자 누구야?'처럼 구체적인 시스템명을 입력하면 더 자세한 정보를 얻을 수 있습니다."
             text = all_owners_text
             return {"result": prefix_message + text, "intent": intent, "sources": []}
     else:
-        prefix_message = PREFIX_MESSAGES["fail"]
+        prefix_message = constants.PREFIX_MESSAGES["fail"]
         no_match_message = "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다.\n지원되는 기능과 관련된 내용으로 다시 질문해주시거나, 추가 문의는 고객센터를 이용해주세요."
         return {
             "result": prefix_message + no_match_message,
