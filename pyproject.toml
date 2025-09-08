@@ -42,3 +42,7 @@ dependencies = [
 test = [
     "pytest>=8.2.0",
 ]
+#langsmith = [
+#    "langsmith>=0.1.0",
+#    "langgraph-studio[server]>=0.1.0",
+#]

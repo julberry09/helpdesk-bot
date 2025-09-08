@@ -136,12 +136,12 @@ def test_tool_owner_lookup_integration(client):
     '담당자 조회' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_owner_lookup_response(data, response):
-        _check_agent_or_fallback_response(
-            data,
-            expected_keywords=["담당자", "홍길동"],
-            fallback_intent="owner_lookup",
-            fallback_message="홍길동"
-        )
+        if AZURE_AVAILABLE:
+            assert data["intent"] == "agent_action"
+            assert "홍길동" in data["reply"]
+        else:
+            assert data["intent"] == "owner_lookup"
+            assert "홍길동" in data["reply"]
     
     run_api_test(
         client,
@@ -157,12 +157,12 @@ def test_tool_reset_password_integration(client):
     '비밀번호 초기화' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_reset_pw_response(data, response):
-        _check_agent_or_fallback_response(
-            data,
-            expected_keywords=["비밀번호 초기화"],
-            fallback_intent="reset_password",
-            fallback_message="비밀번호 초기화"
-        )
+        if AZURE_AVAILABLE:
+            assert data["intent"] == "agent_action"
+            assert "비밀번호 초기화" in data["reply"]
+        else:
+            assert data["intent"] == "reset_password"
+            assert "비밀번호 초기화" in data["reply"]
 
     run_api_test(
         client,
@@ -178,13 +178,11 @@ def test_tool_request_id_integration(client):
     'ID 발급 신청' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_request_id_response(data, response):
-        _check_agent_or_fallback_response(
-            data,
-            expected_keywords=["ID 발급"],
-            fallback_intent="request_id",
-            fallback_message="ID 발급 신청"
-        )
-        if not AZURE_AVAILABLE:
+        if AZURE_AVAILABLE:
+            assert data["intent"] == "agent_action"
+            assert "ID 발급" in data["reply"]
+        else:
+            assert data["intent"] == "request_id"
             assert "ID 발급 신청" in data["reply"]
             assert "접수됨" in data["reply"] or re.search(r"REQ-\d+", data["reply"])
 

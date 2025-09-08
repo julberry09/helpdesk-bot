@@ -140,6 +140,9 @@ pip install .
 
 # 2. 의존성 설치 (개발용 - 테스트 라이브러리 포함)
 pip install -e ".[test]"
+
+# 3. 의존성 설치 (개발용 - langsmith 포함)
+pip install -e ".[test, langsmith]"
 ```
 
 ### 4단계: 애플리케이션 실행
@@ -178,7 +181,6 @@ pytest
 ```
 `pytest`가 `tests` 폴더를 자동으로 찾아 모든 테스트를 실행하고, 전부 `PASSED`로 표시되면 성공입니다.
 
----
 
 ### 6단계: LangGraph Studio 활용 (선택 사항)
 LangGraph Studio를 사용하면 챗봇의 복잡한 대화 흐름을 시각적으로 모니터링하고 디버깅할 수 있습니다. 이를 위해 추가 설정이 필요합니다.

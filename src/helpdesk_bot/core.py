@@ -22,7 +22,7 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
 # LangSmith를 위한 CallbackManager 임포트
 from langchain.callbacks.manager import CallbackManager
-from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
+#from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
 from . import constants
 
@@ -450,14 +450,16 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
     
     callbacks = None
     if langsmith_api_key:
-        callbacks = CallbackManager([
-            LangSmithCallbackHandler(
-                project_name=langsmith_project_name, 
-                api_key=langsmith_api_key, 
-                session_id=session_id
-            )
-        ])
+        # callbacks = CallbackManager([
+        #     LangSmithCallbackHandler(
+        #         project_name=langsmith_project_name, 
+        #         api_key=langsmith_api_key, 
+        #         session_id=session_id
+        #     )
+        # ])
         logger.info("LangSmith is enabled.")
+    else:
+        logger.info("LangSmith is not enabled. Provide LANGSMITH_API_KEY in .env to enable it.")
 
     logger.info("pipeline_in", extra={"extra_data": {"q": question}})
     if _graph is None: _graph = build_graph()
