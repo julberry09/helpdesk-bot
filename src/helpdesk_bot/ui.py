@@ -1,15 +1,11 @@
 # src/helpdesk_bot/ui.py
 
-# 환경 경로 문제 해결을 위한 코드
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
-
 import streamlit as st
 import httpx
-import uuid # 💡 추가: 고유 식별자 생성을 위해 uuid 모듈 임포트
-
-# 절대 경로 임포트 사용
+import uuid
 from helpdesk_bot.core import pipeline, KB_DATA_DIR, INDEX_DIR, INDEX_NAME, build_or_load_vectorstore, AZURE_AVAILABLE
 
 # API 상태를 확인하는 함수 (60초 동안 결과를 캐시하여 성능 저하 방지)

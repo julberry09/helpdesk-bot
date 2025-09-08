@@ -239,10 +239,10 @@ def node_finalize(state: BotState) -> BotState:
     return state
 
 # LangChain & LangGraph - Multi Agent 형태의 Agent Flow 설계 및 구현/ ReAct (Reasoning and Acting) 사용/ 멀티턴 대화 (memory) [checklist: 3,4,5]
-# StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
 _memory_checkpointer = MemorySaver()
 _graph = None
 def build_graph():
+    # StateGraph 클래스를 사용해 멀티 에이전트 워크플로우를 정의함
     g = StateGraph(BotState)
     g.add_node("classify", node_classify)
     g.add_node("reset_password", node_reset_pw)

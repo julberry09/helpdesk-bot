@@ -17,7 +17,7 @@ from src.helpdesk_bot.core import pipeline, logger
 # =============================================================
 # 1. FastAPI 앱 설정
 # =============================================================
-# [checklist: 11] 서비스 개발 및 패키징 - FastAPI를 활용하여 백엔드 API 구성
+# 서비스 개발 및 패키징 - FastAPI를 활용하여 백엔드 API 구성 [checklist: 11] 
 api = FastAPI(title="Helpdesk RAG API", version="0.1.0")
 
 class AuditMiddleware(BaseHTTPMiddleware):
@@ -38,8 +38,6 @@ api.add_middleware(AuditMiddleware)
 # =============================================================
 # 2. API 엔드포인트
 # =============================================================
-# [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
-# 💡 수정: ChatIn 모델에 session_id 필드 추가
 class ChatIn(BaseModel): message: str; session_id: str
 
 class ChatOut(BaseModel): reply: str; intent: str; sources: List[Dict[str, Any]]= []
@@ -48,7 +46,6 @@ class ChatOut(BaseModel): reply: str; intent: str; sources: List[Dict[str, Any]]
 def health(): return {"ok":True}
 
 @api.post("/chat", response_model=ChatOut)
-# 💡 수정: chat 함수에서 payload의 session_id를 추출하여 pipeline에 전달
 def chat(payload: ChatIn = Body(...)):
     out = pipeline(payload.message, payload.session_id)
     return ChatOut(reply=out.get("result",""), intent=out.get("intent",""), sources=out.get("sources", []))
