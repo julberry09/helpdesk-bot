@@ -103,10 +103,10 @@ def test_rag_flow_integration(client):
             assert "계정 신청" in data["reply"]
             assert len(data.get("sources", [])) > 0
         else:
-            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-            assert data["intent"] == "unsupported"
-            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
-            assert len(data.get("sources", [])) == 0
+            # 폴백 모드에서는 FAQ 검색을 통해 답변을 찾을 수 있으므로 그에 맞춰 검증
+            assert data["intent"] == "faq"
+            assert "HR 포털" in data["reply"]
+            assert "계정 신청" in data["reply"]
 
     run_api_test(
         client,
@@ -126,9 +126,9 @@ def test_tool_owner_lookup_integration(client):
             assert data["intent"] == "agent_action"
             assert "홍길동" in data["reply"]
         else:
-            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-            assert data["intent"] == "unsupported"
-            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
+            # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
+            assert data["intent"] == "direct_tool"
+            assert "담당자" in data["reply"]
     
     run_api_test(
         client,
@@ -148,9 +148,9 @@ def test_tool_reset_password_integration(client):
             assert data["intent"] == "agent_action"
             assert "비밀번호 초기화" in data["reply"]
         else:
-            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-            assert data["intent"] == "unsupported"
-            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
+            # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
+            assert data["intent"] == "direct_tool"
+            assert "비밀번호 초기화 안내" in data["reply"]
 
     run_api_test(
         client,
@@ -171,9 +171,9 @@ def test_tool_request_id_integration(client):
             assert data["intent"] == "agent_action"
             assert "ID 발급" in data["reply"]
         else:
-            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-            assert data["intent"] == "unsupported"
-            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
+            # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
+            assert data["intent"] == "direct_tool"
+            assert "ID 발급 신청" in data["reply"]
 
     run_api_test(
         client,
@@ -198,9 +198,9 @@ def test_owner_lookup_no_screen(client):
         pytest.skip("이 테스트는 폴백 모드(Azure 비활성화)에서만 실행됩니다.")
     
     def assert_owner_list_response(data, response):
-        # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-        assert data["intent"] == "unsupported"
-        assert "기본 모드에서 지원되지 않습니다" in data["reply"]
+        # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
+        assert data["intent"] == "direct_tool"
+        assert "담당자" in data["reply"]
     
     run_api_test(
         client,
@@ -219,9 +219,9 @@ def test_owner_lookup_specific_screen(client):
         if AZURE_AVAILABLE:
             assert data["intent"] == "agent_action"
         else:
-            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
-            assert data["intent"] == "unsupported"
-            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
+            # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
+            assert data["intent"] == "direct_tool"
+            assert "담당자" in data["reply"]
     
     run_api_test(
         client,

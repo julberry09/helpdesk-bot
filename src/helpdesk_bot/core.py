@@ -465,14 +465,6 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
         "sources": out.get("sources", []),
     }
 
-# 도구 키워드를 미리 정의
-TOOL_KEYWORDS = {
-    "비밀번호 초기화": "비밀번호 초기화",
-    "아이디 발급": "ID 발급",
-    "계정 발급": "ID 발급",
-    "담당자": "담당자 조회", 
-    "인사시스템 사용자관리": "인사시스템 사용자관리",
-}
 def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     """
     Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
@@ -489,56 +481,43 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
                 "sources": []
             }
     else:
-        # Fallback mode logic
-        
-        # Check for specific tool keywords and provide a distinct response for each
-        # This aligns the core logic with the expectations of the test cases
+        # 폴백 모드
+        # 1. 도구 관련 질문이 있는지 확인
         if "비밀번호 초기화" in question:
+            # 정적 메시지 대신 도구 함수 호출
+            res = tool_reset_password.invoke({})
             return {
-                "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
-                "intent": "unsupported",
+                "reply": f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))),
+                "intent": "direct_tool",
                 "sources": []
             }
         
         if "아이디 발급" in question or "계정 발급" in question:
+            # 정적 메시지 대신 도구 함수 호출
+            res = tool_request_id.invoke({})
             return {
-                "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
-                "intent": "unsupported",
+                "reply": f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}",
+                "intent": "direct_tool",
                 "sources": []
             }
             
         if "담당자" in question:
-            # Handle specific and general owner lookup cases
-            if "인사시스템" in question:
-                return {
-                    "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
-                    "intent": "unsupported",
-                    "sources": []
-                }
+            # 특정 시스템명을 포함하는지 확인
+            screen = "인사시스템-사용자관리" if "인사시스템" in question else "담당자 조회"
+            res = tool_owner_lookup.invoke({"screen": screen})
+            
+            if res.get("ok"):
+                reply = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}"
             else:
-                return {
-                    "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
-                    "intent": "unsupported",
-                    "sources": []
-                }
-
-        # Handle RAG-related keywords separately to match the test case
-        if "ID 발급 절차 알려줘" in question:
+                reply = f"❗{res.get('message','조회 실패')}"
+                
             return {
-                "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
-                "intent": "unsupported",
+                "reply": reply,
+                "intent": "direct_tool",
                 "sources": []
             }
 
-        # Handle greetings
-        if question.lower().strip() in constants.GREETINGS:
-            return {
-                "reply": "네, 반갑습니다. 현재는 기본 모드로 운영 중이며, 간단한 문의만 도와드릴 수 있습니다.",
-                "intent": "greeting",
-                "sources": []
-            }
-        
-        # Search for FAQ
+        # 2. FAQ 검색 로직
         faq_item = find_similar_faq(question)
         if faq_item:
             return {
@@ -546,10 +525,18 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
                 "intent": "faq",
                 "sources": [{"source": "faq_data.csv"}]
             }
-        else:
-            # Fallback for all other questions
+
+        # 3. 인사말 처리
+        if question.lower().strip() in constants.GREETINGS:
             return {
-                "reply": "죄송합니다. 문의하신 내용을 이해하지 못했습니다.",
-                "intent": "unsupported",
+                "reply": "네, 반갑습니다. 현재는 기본 모드로 운영 중이며, 간단한 문의만 도와드릴 수 있습니다.",
+                "intent": "greeting",
                 "sources": []
             }
+        
+        # 4. 그 외 모든 질문에 대한 폴백
+        return {
+            "reply": "죄송합니다. 문의하신 내용을 이해하지 못했습니다.",
+            "intent": "unsupported",
+            "sources": []
+        }
