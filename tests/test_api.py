@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import uuid
 
 from helpdesk_bot.api import api
-from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore , get_okt # get_okt 임포트 추가
+from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore, get_okt # get_okt 임포트 추가
 
 
 # =============================================================

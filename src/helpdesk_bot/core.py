@@ -69,34 +69,51 @@ AZURE_AVAILABLE = bool(AOAI_ENDPOINT and AOAI_API_KEY)
 if not AZURE_AVAILABLE:
     logger.warning("Azure OpenAI 설정이 없어 폴백(Fallback) 모드로 동작합니다.")
 
-# load_faq_data 함수에서 사용하는 전역 변수
-_faq_data = None   
 
-# Okt 형태소 분석 싱글톤 패턴 적용
-class SingletonOkt:
-    _instance = None
-    _lock = threading.Lock() # 스레드 잠금 객체
+# Okt 형태소 분석기 - Lazy Initialization (Thread-Safe)
+_okt = None
+_okt_lock = threading.Lock()
+_faq_data = None   # FAQ 데이터 캐시 전역변수
 
-    def __new__(cls):
-        with cls._lock: # 락(lock)을 사용해 스레드로부터 안전하게 접근
-            if cls._instance is None:
-                try:
-                    # Okt 객체는 한 번만 생성
-                    cls._instance = Okt()
-                    logger.info("Okt 객체가 성공적으로 초기화되었습니다.")
-                except Exception as e:
-                    logger.error(f"Okt 객체 초기화 중 오류 발생: {e}")
-                    raise RuntimeError("Okt 객체 초기화 실패") from e
-        return cls._instance
-
-# Okt 인스턴스를 애플리케이션 시작 시점에 한 번만 미리 생성
-_okt_instance = None
 def get_okt():
-    """Okt 인스턴스를 반환 (Okt 객체는 한 번만 생성)"""
-    global _okt_instance
-    if _okt_instance is None:
-        _okt_instance = SingletonOkt() # 수정된 SingletonOkt 클래스 사용
-    return _okt_instance
+    """
+    Okt 인스턴스를 반환합니다.
+    JVM은 프로세스에서 한 번만 실행될 수 있으므로
+    thread-safe lazy init 패턴을 적용했습니다.
+    """
+    global _okt
+    if _okt is None:
+        with _okt_lock:  # 다른 스레드와 동시 실행 방지
+            if _okt is None:  # double-checked locking
+                _okt = Okt()
+    return _okt
+
+
+# # Okt 형태소 분석 싱글톤 패턴 적용
+# class SingletonOkt:
+#     _instance = None
+#     _lock = threading.Lock() # 스레드 잠금 객체
+# 
+#     def __new__(cls):
+#         with cls._lock: # 락(lock)을 사용해 스레드로부터 안전하게 접근
+#             if cls._instance is None:
+#                 try:
+#                     # Okt 객체는 한 번만 생성
+#                     cls._instance = Okt()
+#                     logger.info("Okt 객체가 성공적으로 초기화되었습니다.")
+#                 except Exception as e:
+#                     logger.error(f"Okt 객체 초기화 중 오류 발생: {e}")
+#                     raise RuntimeError("Okt 객체 초기화 실패") from e
+#         return cls._instance
+# 
+# # Okt 인스턴스를 애플리케이션 시작 시점에 한 번만 미리 생성
+# _okt_instance = None
+# def get_okt():
+#     """Okt 인스턴스를 반환 (Okt 객체는 한 번만 생성)"""
+#     global _okt_instance
+#     if _okt_instance is None:
+#         _okt_instance = SingletonOkt() # 수정된 SingletonOkt 클래스 사용
+#     return _okt_instance
 
 # =============================================================
 # 2. RAG 및 LLM 관련 함수 정의
