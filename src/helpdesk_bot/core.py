@@ -83,17 +83,28 @@ _okt = None
 _okt_lock = threading.Lock()
 _faq_data = None   # FAQ 데이터 캐시 전역변수
 
+class _DummyOkt:
+    """pytest 전용: JVM 없이 최소 기능만 제공하는 더미 분석기"""
+    def phrases(self, text: str):
+        return [w for w in text.lower().split() if w]
+    def nouns(self, text: str):
+        return [w for w in text.lower().split() if w]
+
 def get_okt():
     """
     Okt 인스턴스를 반환합니다.
     JVM은 프로세스에서 한 번만 실행될 수 있으므로
     thread-safe lazy init 패턴을 적용했습니다.
+    테스트 시에는 환경변수 TEST_DISABLE_JVM=1이면 더미 OKT를 사용합니다.
     """
     global _okt
     if _okt is None:
         with _okt_lock:  # 다른 스레드와 동시 실행 방지
             if _okt is None:  # double-checked locking
-                _okt = Okt()
+                if os.getenv("TEST_DISABLE_JVM", "0") == "1":
+                    _okt = _DummyOkt()       # ← JVM 미기동
+                else:
+                    _okt = Okt()             # ← 실제 JVM 기동
     return _okt
 
 
