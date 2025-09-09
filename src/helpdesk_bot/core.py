@@ -194,10 +194,14 @@ def build_or_load_vectorstore() -> FAISS:
 
 # RAG - FAISS 벡터 스토어 검색기 (Singleton Pattern)
 _vectorstore: Optional[FAISS] = None
+_vectorstore_lock = threading.Lock()
+
 def retriever(k: int = 4):
     global _vectorstore
     if _vectorstore is None:
-        _vectorstore = build_or_load_vectorstore()
+        with _vectorstore_lock:
+            if _vectorstore is None:
+                _vectorstore = build_or_load_vectorstore()
     return _vectorstore.as_retriever(search_kwargs={"k": k})
 
 # LLM(언어 모델) 인스턴스를 생성
@@ -286,7 +290,7 @@ def node_finalize(state: BotState) -> BotState:
         if res.get("tool_name") == "tool_reset_password":
             text = f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"
         elif res.get("tool_name") == "tool_request_id":
-            text = f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}\n티켓: {res.get('ticket','-')}"
+            text = f"🆔 ID 발급 신청 절차 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))) if res.get("ok") else f"❗{res.get('message','실패')}"  
         elif res.get("tool_name") == "tool_owner_lookup":
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         else: # FAQ도 여기서 처리
@@ -446,6 +450,7 @@ def build_graph():
             "greeting": "greeting",
             "direct_tool": "direct_tool",
             "faq": "faq",
+            "agent_action": "rag",
             "general_qa": "rag", # 일반 질문은 RAG로 라우팅
         }
     )
@@ -548,8 +553,10 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
         
         if "아이디 발급" in question or "계정 발급" in question:
             res = tool_request_id.invoke({})
+            reply_text = f"🆔 ID 발급 신청 절차 안내\n\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(res.get("steps", [])))
+            
             return {
-                "reply": f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}",
+                "reply": reply_text,
                 "intent": "direct_tool",
                 "sources": []
             }
@@ -559,6 +566,7 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
             
             # Pydantic 오류 해결: payload 인자를 딕셔너리로 래핑
             res = tool_owner_lookup.invoke({"payload": {"screen": screen}})
+            #res = tool_owner_lookup.invoke({"screen": screen})
             
             if res.get("ok"):
                 reply = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}"

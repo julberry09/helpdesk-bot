@@ -103,29 +103,27 @@ def test_chat_bad_request(client):
 # =============================================================
 # 2. 통합 테스트: 전체 파이프라인 동작 검증
 # =============================================================
-
-def test_rag_flow_integration(client):
+def test_rag_flow_integration_with_faq(client):
     """
-    RAG 파이프라인의 전체 동작을 통합 테스트합니다.
+    FAQ에 대한 질문이 RAG 파이프라인을 통해 올바르게 답변되는지 테스트합니다.
     """
-    def assert_rag_response(data, response):
+    def assert_faq_response(data, response):
         if AZURE_AVAILABLE:
-            assert "HR 포털" in data["reply"]
-            assert "계정 신청" in data["reply"]
-            assert len(data.get("sources", [])) > 0
+            # Azure가 연결된 정상 모드에서는 FAQ를 통해 답변을 찾고 소스도 제공해야 함
+            assert data["intent"] == "faq" or data["intent"] == "general_qa"
+            assert "자주 묻는 질문" in data.get("reply", "") or len(data.get("sources", [])) > 0
         else:
-            # 폴백 모드에서는 FAQ 검색을 통해 답변을 찾을 수 있으므로 그에 맞춰 검증
+            # 폴백 모드에서는 FAQ 검색 후 답변이 반환되어야 함
             assert data["intent"] == "faq"
-            assert "HR 포털" in data["reply"]
-            assert "계정 신청" in data["reply"]
+            assert "문의하신 내용에 대한 답변입니다." in data["reply"]
 
     run_api_test(
         client,
         endpoint="/chat",
-        payload={"message": "ID 발급 절차 알려줘", "session_id": str(uuid.uuid4())},
+        payload={"message": "식당 메뉴는 어디서 확인?", "session_id": str(uuid.uuid4())},
         expected_status=200,
         expected_keys=["reply", "intent", "sources"],
-        additional_assertions=assert_rag_response
+        additional_assertions=assert_faq_response
     )
 
 def test_tool_owner_lookup_integration(client):
@@ -174,24 +172,29 @@ def test_tool_reset_password_integration(client):
 
 def test_tool_request_id_integration(client):
     """
-    'ID 발급 신청' 도구 호출 흐름을 통합 테스트합니다.
+    '아이디 발급 절차' 도구 호출 흐름을 통합 테스트합니다.
     """
     def assert_request_id_response(data, response):
         if AZURE_AVAILABLE:
             # Azure가 연결되어 있을 때의 테스트 로직
-            assert data["intent"] == "agent_action"
-            assert "ID 발급" in data["reply"]
+            assert data["intent"] == "direct_tool"
+            assert "HR 포털" in data["reply"]
+            assert "계정 신청" in data["reply"]
+            assert len(data.get("sources", [])) == 0
         else:
             # 폴백 모드에서는 도구 함수를 직접 호출하므로 그에 맞춰 검증
             assert data["intent"] == "direct_tool"
-            assert "ID 발급 신청" in data["reply"]
+            # 수정: node_finalize의 변경된 답변 내용에 맞춰 검증
+            assert "ID 발급 신청 절차 안내" in data["reply"]
+            assert "HR 포털 접속" in data["reply"]
+            assert len(data.get("sources", [])) == 0
 
     run_api_test(
         client,
         endpoint="/chat",
         payload={"message": "계정 발급 신청", "session_id": str(uuid.uuid4())},
         expected_status=200,
-        expected_keys=["reply", "intent"],
+        expected_keys=["reply", "intent", "sources"],
         additional_assertions=assert_request_id_response
     )
 

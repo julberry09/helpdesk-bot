@@ -2,13 +2,14 @@
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
+# sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
 import streamlit as st
 import httpx
 import uuid
 from helpdesk_bot.core import pipeline, build_or_load_vectorstore, AZURE_AVAILABLE
 # Local application imports
-from helpdesk_bot import constants # constants 모듈을 직접 임포트
+from helpdesk_bot import constants
+
 
 # from . import constants
 

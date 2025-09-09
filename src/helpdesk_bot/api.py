@@ -2,7 +2,7 @@
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
+# sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
 
 import uvicorn
 import time as _time
@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 import contextlib # 💡 추가
 
 from fastapi import FastAPI, Body, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # 공통 로직(파이프라인, 로거) 임포트
@@ -56,7 +56,7 @@ api.add_middleware(AuditMiddleware)
 # =============================================================
 class ChatIn(BaseModel): message: str; session_id: str
 
-class ChatOut(BaseModel): reply: str; intent: str; sources: List[Dict[str, Any]]= []
+class ChatOut(BaseModel): reply: str; intent: str; sources: list[dict] = Field(default_factory=list)
 
 @api.get("/health")
 def health(): return {"ok":True}
