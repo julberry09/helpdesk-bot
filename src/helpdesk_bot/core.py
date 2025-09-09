@@ -6,6 +6,7 @@ import json
 import logging
 import csv
 import time as _time
+import threading # 추가: 스레딩 모듈 임포트
 from typing import TypedDict, List, Dict, Any, Optional
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 
-# LangSmith를 위한 CallbackManager 임포트 (python 버전 낮춰야함 3.11)
+# LangSmith를 위한 CallbackManager 임포트 (python 버전 낮춰야해서 hold -  3.11)
 # from langchain.callbacks.manager import CallbackManager
 # from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
@@ -68,17 +69,29 @@ AZURE_AVAILABLE = bool(AOAI_ENDPOINT and AOAI_API_KEY)
 if not AZURE_AVAILABLE:
     logger.warning("Azure OpenAI 설정이 없어 폴백(Fallback) 모드로 동작합니다.")
 
-
-# Okt 형태소 분석기 - Lazy Initialization
-_okt = None
+# load_faq_data 함수에서 사용하는 전역 변수
 _faq_data = None   
+
+# Okt 형태소 분석 싱글톤 패턴 적용
+class SingletonOkt:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    try:
+                        cls._instance = Okt()
+                        logger.info("Okt 객체가 성공적으로 초기화되었습니다.")
+                    except Exception as e:
+                        logger.error(f"Okt 객체 초기화 중 오류 발생: {e}")
+                        raise RuntimeError("Okt 객체 초기화 실패") from e
+        return cls._instance
 
 def get_okt():
     """필요할 때만 JVM을 띄우고 Okt 인스턴스를 반환"""
-    global _okt
-    if _okt is None:
-        _okt = Okt()
-    return _okt
+    return SingletonOkt() # 변경: 싱글톤 클래스 인스턴스 반환
 
 # =============================================================
 # 2. RAG 및 LLM 관련 함수 정의
@@ -181,7 +194,7 @@ def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> A
     )
 
 # =============================================================
-# 3. LangGraph 도구 및 노드 정의
+# 3. LangGraph 도구 정의
 # =============================================================
 # 상태 관리 (State Management)
 class BotState(TypedDict):
@@ -248,10 +261,10 @@ def node_finalize(state: BotState) -> BotState:
     return state
 
 # =============================================================
-# 4. LangGraph (Workflow & Nodes)
+# 4. LangGraph Workflow 및 노드 정의
 # ==========================================================
 # LangChain & LangGraph - Multi-Agent Flow 설계 및 구현 [checklist: 3,4,5]
-# LangGraph Studio (UI 기반 그래프 시각화 툴)를 활용하여 그래프 모니터링 및 디버깅 가능합니다.
+# FAQ 데이터 로드
 def load_faq_data() -> List[Dict[str, str]]:
     global _faq_data
     if _faq_data is not None: return _faq_data
@@ -265,15 +278,17 @@ def load_faq_data() -> List[Dict[str, str]]:
         with open(faq_file_path, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                row["faq_words"] = set(get_okt().phrases(row.get("question", "")))
-                loaded_data.append(row)
+                # FAQ 데이터에 '질문'과 '답변' 필드가 있는지 확인
+                if "질문" in row and "답변" in row:
+                    row["faq_words"] = set(get_okt().phrases(row.get("질문", "")))
+                    loaded_data.append(row)
         logger.info(f"{len(loaded_data)}개의 FAQ 데이터를 로드했습니다.")
     except Exception as e:
         logger.error(f"FAQ 파일 로드 실패: {e}")
     _faq_data = loaded_data
     return _faq_data
-
-def find_similar_faq(question: str) -> Optional[str]:
+# FAQ 유사도 검색
+def find_similar_faq(question: str) -> Optional[Dict[str, Any]]:
     faq_data = load_faq_data()
     if not faq_data: return None
     user_words = set(get_okt().phrases(question.lower()))
@@ -281,7 +296,7 @@ def find_similar_faq(question: str) -> Optional[str]:
     if not user_words: return None
     
     best_score = 0.0
-    best_answer = None
+    best_item = None
     
     for item in faq_data:
         faq_words = item.get("faq_words", set())
@@ -292,8 +307,11 @@ def find_similar_faq(question: str) -> Optional[str]:
         
         if score > best_score:
             best_score = score
-            best_answer = item.get("answer")
-    return best_answer if best_score > 0.2 else None
+            best_item = item
+
+    # 점수 임계값(threshold)을 0.2로 설정
+    return best_item if best_score > 0.2 else None
+
 # Prompt Engineering - 프롬프트 최적화 (Few-shot Prompting) [checklist: 1]
 # 노드(Node) 함수
 def node_classify(state: BotState) -> BotState:
@@ -354,7 +372,7 @@ def node_direct_tool(state: BotState) -> BotState:
 def node_faq(state: BotState) -> BotState:
     faq_answer = find_similar_faq(state["question"])
     if faq_answer:
-        return {**state, "tool_output": {"ok": True, "answer": faq_answer}, "intent": "faq"}
+        return {**state, "tool_output": {"ok": True, "answer": faq_answer.get("answer")}, "intent": "faq", "sources": [{"source": "faq_data.csv"}]} # 변경: 소스 정보 추가
     else:
         # FAQ에서 찾지 못하면 일반 QA로 전환
         return {**state, "intent": "general_qa"}
@@ -408,13 +426,12 @@ def build_graph():
 # 5. Pipeline Orchestration
 # =============================================================
 # LangChain & LangGraph를 활용한 전체 파이프라인 구성
-
 _graph = None
 def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
     # [checklist: 5] LangChain & LangGraph - 멀티턴 대화 (memory) 활용
     """LangGraph 기반의 AI 파이프라인을 실행합니다."""
     global _graph
-    
+    # LangGraph Studio (UI 기반 그래프 시각화 툴)를 활용하여 그래프 모니터링 및 디버깅 - hold
     # LangSmith 콜백 핸들러 설정
     langsmith_api_key = os.getenv("LANGSMITH_API_KEY")
     langsmith_project_name = os.getenv("LANGSMITH_PROJECT", "Helpdesk Bot")
@@ -440,8 +457,22 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
         config={"configurable": {"thread_id": session_id}, "callbacks": callbacks}
     )
     logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent", "")}})
-    return out
+    
+    # LangGraph 결과에서 최종 답변과 의도 반환
+    return {
+        "reply": out.get("result", "죄송합니다. 답변을 찾지 못했습니다."),
+        "intent": out.get("intent", "unsupported"),
+        "sources": out.get("sources", []),
+    }
 
+# 도구 키워드를 미리 정의
+TOOL_KEYWORDS = {
+    "비밀번호 초기화": "비밀번호 초기화",
+    "아이디 발급": "ID 발급",
+    "계정 발급": "ID 발급",
+    "담당자": "담당자 조회", 
+    "인사시스템 사용자관리": "인사시스템 사용자관리",
+}
 def pipeline(question: str, session_id: str) -> Dict[str, Any]:
     """
     Azure 연결 상태에 따라 적절한 파이프라인으로 요청을 라우팅합니다.
@@ -452,33 +483,47 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"주요 파이프라인 실행 중 오류 발생: {e}. 폴백 모드로 전환합니다.")
             
-            # 여기서 LangGraph가 실패하면 간단한 폴백 응답을 제공
-            # 이는 LangGraph 자체의 오류에 대비한 최후의 안전장치
             return {
-                "result": "죄송합니다. 시스템 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                "reply": "죄송합니다. 시스템 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
                 "intent": "system_error",
                 "sources": []
             }
     else:
-        # Azure가 사용 불가하면 제한된 모드로 작동
-        # 간단한 인사말과 FAQ만 지원
+        # 폴백 모드에서 도구 관련 질문을 먼저 처리하도록 로직 변경
+        found_tool_keyword = False
+        for keyword, tool_name in TOOL_KEYWORDS.items():
+            if keyword in question:
+                found_tool_keyword = True
+                break
+        
+        # 도구 관련 질문이 감지되면, 바로 unsupported 응답을 반환
+        if found_tool_keyword:
+            return {
+                "reply": "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
+                "intent": "unsupported",
+                "sources": []
+            }
+
+        # 인사말 처리
         if question.lower().strip() in constants.GREETINGS:
             return {
-                "result": "네, 반갑습니다. 현재는 기본 모드로 운영 중이며, 간단한 문의만 도와드릴 수 있습니다.",
+                "reply": "네, 반갑습니다. 현재는 기본 모드로 운영 중이며, 간단한 문의만 도와드릴 수 있습니다.",
                 "intent": "greeting",
                 "sources": []
             }
         
-        faq_answer = find_similar_faq(question)
-        if faq_answer:
+        # FAQ 검색
+        faq_item = find_similar_faq(question)
+        if faq_item:
             return {
-                "result": constants.PREFIX_MESSAGES["ok"] + faq_answer,
+                "reply": f"[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n{faq_item.get('answer')}",
                 "intent": "faq",
                 "sources": [{"source": "faq_data.csv"}]
             }
         else:
+            # FAQ에서도 찾지 못하고, 도구 관련 키워드도 아닌 경우
             return {
-                "result": constants.PREFIX_MESSAGES["fail"] + "문의하신 내용은 현재 기본 모드에서 지원되지 않습니다.",
+                "reply": "죄송합니다. 문의하신 내용을 이해하지 못했습니다.",
                 "intent": "unsupported",
                 "sources": []
             }
