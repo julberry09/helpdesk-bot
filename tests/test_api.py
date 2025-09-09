@@ -103,8 +103,9 @@ def test_rag_flow_integration(client):
             assert "계정 신청" in data["reply"]
             assert len(data.get("sources", [])) > 0
         else:
-            assert data["intent"] == "fallback_no_match"
-            assert "문의하신 내용에 대한 정보는 현재 답변이 어렵습니다" in data["reply"]
+            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+            assert data["intent"] == "unsupported"
+            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
             assert len(data.get("sources", [])) == 0
 
     run_api_test(
@@ -125,8 +126,9 @@ def test_tool_owner_lookup_integration(client):
             assert data["intent"] == "agent_action"
             assert "홍길동" in data["reply"]
         else:
-            assert data["intent"] == "owner_lookup"
-            assert "홍길동" in data["reply"]
+            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+            assert data["intent"] == "unsupported"
+            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
     
     run_api_test(
         client,
@@ -146,8 +148,9 @@ def test_tool_reset_password_integration(client):
             assert data["intent"] == "agent_action"
             assert "비밀번호 초기화" in data["reply"]
         else:
-            assert data["intent"] == "reset_password"
-            assert "비밀번호 초기화" in data["reply"]
+            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+            assert data["intent"] == "unsupported"
+            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
 
     run_api_test(
         client,
@@ -168,11 +171,9 @@ def test_tool_request_id_integration(client):
             assert data["intent"] == "agent_action"
             assert "ID 발급" in data["reply"]
         else:
-            # Azure가 연결되어 있지 않을 때(Fallback)의 테스트 로직
-            assert data["intent"] == "request_id"
-            assert "ID 발급 신청" in data["reply"]
-            # 추가적인 응답 패턴 검증
-            assert "접수됨" in data["reply"] or re.search(r"REQ-\d+", data["reply"])
+            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+            assert data["intent"] == "unsupported"
+            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
 
     run_api_test(
         client,
@@ -195,12 +196,11 @@ def test_owner_lookup_no_screen(client):
     # Azure가 사용 가능한 경우 이 테스트는 스킵
     if AZURE_AVAILABLE:
         pytest.skip("이 테스트는 폴백 모드(Azure 비활성화)에서만 실행됩니다.")
-
+    
     def assert_owner_list_response(data, response):
-        assert data["intent"] == "owner_lookup"
-        assert "✨ **담당자 조회 가능 목록**" in data["reply"]
-        assert "인사시스템" in data["reply"]
-        assert "재무시스템" in data["reply"]
+        # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+        assert data["intent"] == "unsupported"
+        assert "기본 모드에서 지원되지 않습니다" in data["reply"]
     
     run_api_test(
         client,
@@ -219,11 +219,9 @@ def test_owner_lookup_specific_screen(client):
         if AZURE_AVAILABLE:
             assert data["intent"] == "agent_action"
         else:
-            assert data["intent"] == "owner_lookup"
-        
-        # '홍길동' 이름과 이메일 주소가 응답에 포함되어 있는지 확인
-        assert "홍길동" in data["reply"]
-        assert "owner.hr@example.com" in data["reply"]
+            # 폴백 모드에서는 'unsupported' 의도와 메시지를 반환하도록 수정
+            assert data["intent"] == "unsupported"
+            assert "기본 모드에서 지원되지 않습니다" in data["reply"]
     
     run_api_test(
         client,

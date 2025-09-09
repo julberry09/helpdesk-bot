@@ -1,4 +1,5 @@
 # api.py
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
@@ -6,19 +7,36 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(
 import uvicorn
 import time as _time
 from typing import List, Dict, Any
+import contextlib # 💡 추가
 
 from fastapi import FastAPI, Body, Request
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # 공통 로직(파이프라인, 로거) 임포트
-from src.helpdesk_bot.core import pipeline, logger
+from src.helpdesk_bot.core import pipeline, logger, get_okt # 💡 get_okt 추가
 
 # =============================================================
 # 1. FastAPI 앱 설정
 # =============================================================
 # 서비스 개발 및 패키징 - FastAPI를 활용하여 백엔드 API 구성 [checklist: 11] 
-api = FastAPI(title="Helpdesk RAG API", version="0.1.0")
+# 💡 추가: 애플리케이션 시작/종료 시 이벤트 처리
+@contextlib.asynccontextmanager
+async def lifespan(api: FastAPI):
+    # 애플리케이션 시작 시 로직
+    logger.info("Application starting up...")
+    try:
+        # FastAPI 시작 시 Okt 인스턴스를 미리 생성하여 JVM 초기화
+        _ = get_okt()
+        logger.info("Okt has been initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Okt/JVM: {e}")
+        # 실패 시에도 애플리케이션이 시작되도록 처리
+    yield
+    # 애플리케이션 종료 시 로직
+    logger.info("Application shutting down.")
+
+api = FastAPI(title="Helpdesk RAG API", version="0.1.0", lifespan=lifespan) # 💡 lifespan 추가
 
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
