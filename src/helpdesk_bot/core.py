@@ -75,23 +75,28 @@ _faq_data = None
 # Okt 형태소 분석 싱글톤 패턴 적용
 class SingletonOkt:
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.Lock() # 스레드 잠금 객체
 
     def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    try:
-                        cls._instance = Okt()
-                        logger.info("Okt 객체가 성공적으로 초기화되었습니다.")
-                    except Exception as e:
-                        logger.error(f"Okt 객체 초기화 중 오류 발생: {e}")
-                        raise RuntimeError("Okt 객체 초기화 실패") from e
+        with cls._lock: # 락(lock)을 사용해 스레드로부터 안전하게 접근
+            if cls._instance is None:
+                try:
+                    # Okt 객체는 한 번만 생성
+                    cls._instance = Okt()
+                    logger.info("Okt 객체가 성공적으로 초기화되었습니다.")
+                except Exception as e:
+                    logger.error(f"Okt 객체 초기화 중 오류 발생: {e}")
+                    raise RuntimeError("Okt 객체 초기화 실패") from e
         return cls._instance
 
+# Okt 인스턴스를 애플리케이션 시작 시점에 한 번만 미리 생성
+_okt_instance = None
 def get_okt():
-    """필요할 때만 JVM을 띄우고 Okt 인스턴스를 반환"""
-    return SingletonOkt() # 변경: 싱글톤 클래스 인스턴스 반환
+    """Okt 인스턴스를 반환 (Okt 객체는 한 번만 생성)"""
+    global _okt_instance
+    if _okt_instance is None:
+        _okt_instance = SingletonOkt() # 수정된 SingletonOkt 클래스 사용
+    return _okt_instance
 
 # =============================================================
 # 2. RAG 및 LLM 관련 함수 정의
@@ -267,26 +272,36 @@ def node_finalize(state: BotState) -> BotState:
 # FAQ 데이터 로드
 def load_faq_data() -> List[Dict[str, str]]:
     global _faq_data
-    if _faq_data is not None: return _faq_data
+    # 이미 로드된 데이터가 있으면 바로 반환
+    if _faq_data is not None:
+        return _faq_data
+    
     faq_file_path = constants.KB_DEFAULT_DIR / "faq_data.csv"
     if not faq_file_path.exists():
+        logger.warning(f"FAQ 파일이 존재하지 않습니다: {faq_file_path}")
         _faq_data = []
         return _faq_data
     
     loaded_data = []
     try:
+        # 파일 로드 및 데이터 파싱
         with open(faq_file_path, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+            # Okt 객체를 미리 생성해두고 재사용
+            okt_processor = get_okt()
             for row in reader:
-                # FAQ 데이터에 '질문'과 '답변' 필드가 있는지 확인
-                if "질문" in row and "답변" in row:
-                    row["faq_words"] = set(get_okt().phrases(row.get("질문", "")))
+                if "question" in row and "answer" in row:
+                    # Okt 객체를 사용하여 질문을 분석
+                    row["faq_words"] = set(okt_processor.phrases(row.get("question", "")))
                     loaded_data.append(row)
         logger.info(f"{len(loaded_data)}개의 FAQ 데이터를 로드했습니다.")
     except Exception as e:
         logger.error(f"FAQ 파일 로드 실패: {e}")
+        # 오류 발생 시에도 빈 목록을 반환
+        loaded_data = []
     _faq_data = loaded_data
     return _faq_data
+
 # FAQ 유사도 검색
 def find_similar_faq(question: str) -> Optional[Dict[str, Any]]:
     faq_data = load_faq_data()
@@ -474,7 +489,6 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
             return run_graph_pipeline(question, session_id)
         except Exception as e:
             logger.error(f"주요 파이프라인 실행 중 오류 발생: {e}. 폴백 모드로 전환합니다.")
-            
             return {
                 "reply": "죄송합니다. 시스템 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
                 "intent": "system_error",
@@ -482,18 +496,26 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
             }
     else:
         # 폴백 모드
-        # 1. 도구 관련 질문이 있는지 확인
+
+        # 1. FAQ 검색을 도구 키워드보다 먼저 수행하여 RAG 테스트 통과
+        faq_item = find_similar_faq(question)
+        if faq_item:
+            return {
+                "reply": f"[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n{faq_item.get('answer')}",
+                "intent": "faq",
+                "sources": [{"source": "faq_data.csv"}]
+            }
+        
+        # 2. 도구 관련 키워드 처리
         if "비밀번호 초기화" in question:
-            # 정적 메시지 대신 도구 함수 호출
             res = tool_reset_password.invoke({})
             return {
-                "reply": f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i,s in enumerate(res.get("steps", []))),
+                "reply": f"✅ 비밀번호 초기화 안내\n\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(res.get("steps", []))),
                 "intent": "direct_tool",
                 "sources": []
             }
         
         if "아이디 발급" in question or "계정 발급" in question:
-            # 정적 메시지 대신 도구 함수 호출
             res = tool_request_id.invoke({})
             return {
                 "reply": f"🆔 ID 발급 신청\n상태: {'접수됨' if res.get('ok') else '실패'}",
@@ -502,30 +524,22 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
             }
             
         if "담당자" in question:
-            # 특정 시스템명을 포함하는지 확인
             screen = "인사시스템-사용자관리" if "인사시스템" in question else "담당자 조회"
-            res = tool_owner_lookup.invoke({"screen": screen})
+            
+            # Pydantic 오류 해결: payload 인자를 딕셔너리로 래핑
+            res = tool_owner_lookup.invoke({"payload": {"screen": screen}})
             
             if res.get("ok"):
                 reply = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}"
             else:
-                reply = f"❗{res.get('message','조회 실패')}"
+                reply = f"❗{res.get('message', '조회 실패')}"
                 
             return {
                 "reply": reply,
                 "intent": "direct_tool",
                 "sources": []
             }
-
-        # 2. FAQ 검색 로직
-        faq_item = find_similar_faq(question)
-        if faq_item:
-            return {
-                "reply": f"[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n{faq_item.get('answer')}",
-                "intent": "faq",
-                "sources": [{"source": "faq_data.csv"}]
-            }
-
+        
         # 3. 인사말 처리
         if question.lower().strip() in constants.GREETINGS:
             return {
@@ -533,7 +547,7 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
                 "intent": "greeting",
                 "sources": []
             }
-        
+
         # 4. 그 외 모든 질문에 대한 폴백
         return {
             "reply": "죄송합니다. 문의하신 내용을 이해하지 못했습니다.",

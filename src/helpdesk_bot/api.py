@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # 공통 로직(파이프라인, 로거) 임포트
-from src.helpdesk_bot.core import pipeline, logger, get_okt # 💡 get_okt 추가
+from src.helpdesk_bot.core import pipeline, logger
 
 # =============================================================
 # 1. FastAPI 앱 설정
@@ -23,17 +23,15 @@ from src.helpdesk_bot.core import pipeline, logger, get_okt # 💡 get_okt 추�
 # 💡 추가: 애플리케이션 시작/종료 시 이벤트 처리
 @contextlib.asynccontextmanager
 async def lifespan(api: FastAPI):
-    # 애플리케이션 시작 시 로직
     logger.info("Application starting up...")
     try:
-        # FastAPI 시작 시 Okt 인스턴스를 미리 생성하여 JVM 초기화
-        _ = get_okt()
-        logger.info("Okt has been initialized successfully.")
+        # Okt 초기화 로직을 제거
+        # _ = get_okt()
+        # logger.info("Okt has been initialized successfully.")
+        pass # 빈 블록 유지
     except Exception as e:
         logger.error(f"Failed to initialize Okt/JVM: {e}")
-        # 실패 시에도 애플리케이션이 시작되도록 처리
     yield
-    # 애플리케이션 종료 시 로직
     logger.info("Application shutting down.")
 
 api = FastAPI(title="Helpdesk RAG API", version="0.1.0", lifespan=lifespan) # 💡 lifespan 추가

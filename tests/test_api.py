@@ -11,12 +11,23 @@ from fastapi.testclient import TestClient
 import uuid
 
 from helpdesk_bot.api import api
-from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore
+from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore , get_okt # get_okt 임포트 추가
 
 
 # =============================================================
 # Fixtures & Helpers
 # =============================================================
+@pytest.fixture(scope="session", autouse=True)
+def okt_initialization():
+    """
+    테스트 세션 시작 시 Okt 인스턴스를 한 번만 초기화합니다.
+    """
+    print("\npytest-session: Okt 객체 초기화를 시작합니다.")
+    _ = get_okt()
+    print("pytest-session: Okt 객체가 성공적으로 초기화되었습니다.")
+    yield
+    print("\npytest-session: Okt 객체 테스트 세션이 종료됩니다.")
+
 @pytest.fixture(scope="module")
 def client():
     """
