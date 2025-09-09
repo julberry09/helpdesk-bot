@@ -6,7 +6,11 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(
 import streamlit as st
 import httpx
 import uuid
-from helpdesk_bot.core import pipeline, KB_DATA_DIR, INDEX_DIR, INDEX_NAME, build_or_load_vectorstore, AZURE_AVAILABLE
+from helpdesk_bot.core import pipeline, build_or_load_vectorstore, AZURE_AVAILABLE
+# Local application imports
+from helpdesk_bot import constants # constants 모듈을 직접 임포트
+
+# from . import constants
 
 # API 상태를 확인하는 함수 (60초 동안 결과를 캐시하여 성능 저하 방지)
 @st.cache_data(ttl=180)
@@ -67,9 +71,9 @@ def main():
                 label_visibility="collapsed"
             )
             if uploaded:
-                KB_DATA_DIR.mkdir(parents=True, exist_ok=True)
+                constants.KB_DATA_DIR.mkdir(parents=True, exist_ok=True)
                 for f in uploaded:
-                    with open(KB_DATA_DIR / f.name, "wb") as w:
+                    with open(constants.KB_DATA_DIR / f.name, "wb") as w:
                         w.write(f.read())
                 st.success(f"{len(uploaded)}개 문서 저장됨. 'Sync Content'를 눌러 반영하세요.")
 
@@ -80,7 +84,7 @@ def main():
                 if st.button("Sync Content", disabled=not AZURE_AVAILABLE, use_container_width=True):
                     try:
                         for ext in [".faiss", ".pkl"]:
-                            p = INDEX_DIR / f"{INDEX_NAME}{ext}"
+                            p = constants.INDEX_DIR / f"{constants.INDEX_NAME}{ext}"
                             if p.exists(): p.unlink()
                         with st.spinner("Index 재생성 중..."):
                             build_or_load_vectorstore()
@@ -138,13 +142,12 @@ def main():
                     else:
                         # 💡 수정: 로컬 폴백 모드에서도 session_id 전달 (사용되지는 않지만 API와의 일관성을 위해)
                         out = pipeline(q, st.session_state["thread_id"])
-                        reply = out.get("result",""); sources = out.get("sources", [])
-                
+                        reply = out.get("reply",""); sources = out.get("sources", [])              
                 except httpx.ConnectError:
                     st.warning("API 서버에 연결할 수 없어 로컬 폴백 모드로 자동 전환하여 재시도합니다.")
                     # 💡 수정: 로컬 폴백 모드에서도 session_id 전달
                     out = pipeline(q, st.session_state["thread_id"])
-                    reply = out.get("result",""); sources = out.get("sources", [])
+                    reply = out.get("reply",""); sources = out.get("sources", [])
                 
                 except Exception as e:
                     reply = f"오류: {e}"

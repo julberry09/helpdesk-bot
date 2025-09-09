@@ -30,8 +30,8 @@ from langgraph.graph import StateGraph, END
 # from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
 # Local application imports
-from . import constants
-
+from helpdesk_bot import constants
+#from . import constants
 # =============================================================
 # 1. 공통 설정 / 환경 변수
 # =============================================================
@@ -43,10 +43,18 @@ if not logger.handlers:
     LOG_DIR = Path("./logs"); LOG_DIR.mkdir(parents=True, exist_ok=True)
     class _ConsoleFormatter(logging.Formatter):
         def format(self, record):
-            base = {"level": record.levelname, "name": record.name, "msg": record.getMessage()}
+            base = {
+                "level": record.levelname,
+                "name": record.name,
+                "msg": record.getMessage(),
+                "source": f"{os.path.basename(record.pathname)}:{record.lineno}",
+                "function": record.funcName
+            }
             if hasattr(record, "extra_data"):
                 base.update(record.extra_data)
             return json.dumps(base, ensure_ascii=False)
+
+
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(_ConsoleFormatter())
@@ -513,16 +521,16 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
             }
     else:
         # 폴백 모드
-
-        # 1. FAQ 검색을 도구 키워드보다 먼저 수행하여 RAG 테스트 통과
-        faq_item = find_similar_faq(question)
-        if faq_item:
+        logger.info("풀백 파이프라인")
+        # 3. 인사말 처리
+        logger.error(f"질문이 입력되었나?: {question.lower().strip()}")
+        if question.lower().strip() in constants.GREETINGS:
+            logger.error(f"리턴은??")
             return {
-                "reply": f"[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n{faq_item.get('answer')}",
-                "intent": "faq",
-                "sources": [{"source": "faq_data.csv"}]
-            }
-        
+                "reply": "네, 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.",
+                "intent": "greeting",
+                "sources": []
+            }     
         # 2. 도구 관련 키워드 처리
         if "비밀번호 초기화" in question:
             res = tool_reset_password.invoke({})
@@ -557,12 +565,14 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
                 "sources": []
             }
         
-        # 3. 인사말 처리
-        if question.lower().strip() in constants.GREETINGS:
+
+        # 1. FAQ 검색을 도구 키워드보다 먼저 수행하여 RAG 테스트 통과
+        faq_item = find_similar_faq(question)
+        if faq_item:
             return {
-                "reply": "네, 반갑습니다. 현재는 기본 모드로 운영 중이며, 간단한 문의만 도와드릴 수 있습니다.",
-                "intent": "greeting",
-                "sources": []
+                "reply": f"[안내] 문의하신 내용에 대한 답변입니다.\n\n---\n\n{faq_item.get('answer')}",
+                "intent": "faq",
+                "sources": [{"source": "faq_data.csv"}]
             }
 
         # 4. 그 외 모든 질문에 대한 폴백
