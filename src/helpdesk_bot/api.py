@@ -64,7 +64,7 @@ def health(): return {"ok":True}
 @api.post("/chat", response_model=ChatOut)
 def chat(payload: ChatIn = Body(...)):
     out = pipeline(payload.message, payload.session_id)
-    return ChatOut(reply=out.get("result",""), intent=out.get("intent",""), sources=out.get("sources", []))
+    return ChatOut(reply=out.get("reply",""), intent=out.get("intent",""), sources=out.get("sources", []))
 
 # =============================================================
 # 3. 엔트리포인트

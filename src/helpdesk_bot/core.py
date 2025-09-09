@@ -6,7 +6,7 @@ import json
 import logging
 import csv
 import time as _time
-import threading # 추가: 스레딩 모듈 임포트
+import threading 
 from typing import TypedDict, List, Dict, Any, Optional
 from pathlib import Path
 
@@ -25,7 +25,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 
-# LangSmith를 위한 CallbackManager 임포트 (python 버전 낮춰야해서 hold -  3.11)
+# LangSmith를 위한 CallbackManager 임포트 (python 버전 낮춰야해서 hold - 3.11)
 # from langchain.callbacks.manager import CallbackManager
 # from langchain_community.callbacks.langsmith import LangSmithCallbackHandler
 
@@ -40,7 +40,9 @@ load_dotenv()
 # 로거 설정
 logger = logging.getLogger("helpdesk-bot")
 if not logger.handlers:
-    LOG_DIR = Path("./logs"); LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR = Path("./logs")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    
     class _ConsoleFormatter(logging.Formatter):
         def format(self, record):
             base = {
@@ -53,8 +55,6 @@ if not logger.handlers:
             if hasattr(record, "extra_data"):
                 base.update(record.extra_data)
             return json.dumps(base, ensure_ascii=False)
-
-
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(_ConsoleFormatter())
@@ -228,8 +228,11 @@ def make_llm(model: str = AOAI_DEPLOY_GPT4O_MINI, temperature: float = 0.2) -> A
 # =============================================================
 # 상태 관리 (State Management)
 class BotState(TypedDict):
-    question: str; intent: str; result: str
-    sources: List[Dict[str, Any]]; tool_output: Dict[str, Any]
+    question: str
+    intent: str
+    reply: str  # 'result' 대신 'reply' 사용
+    sources: List[Dict[str, Any]]
+    tool_output: Dict[str, Any]
 
 # 도구(Tool) 함수 - LLM 에이전트가 사용
 @tool
@@ -271,8 +274,9 @@ def node_rag(state: BotState) -> BotState:
     llm = make_llm(model=AOAI_DEPLOY_GPT4O)
     sys_prompt = "너는 사내 헬프데스크 상담원이다. 컨텍스트를 기반으로 실행 가능한 답변을 한국어로 작성해라. 컨텍스트에 없는 내용을 지어내지 마라."
     user_prompt = f"질문:\n{state['question']}\n\n컨텍스트:\n{context}"
+    # 💡 수정: LLM 반환 값을 'reply' 키로 저장
     out = llm.invoke([{"role":"system","content":sys_prompt},{"role":"user","content":user_prompt}]).content
-    return {**state, "result": out, "sources": sources}
+    return {**state, "reply": out, "sources": sources}
 
 # 도구(Tool) 함수 결과 사용자 친화적인 형태로 변환
 def node_finalize(state: BotState) -> BotState:
@@ -287,7 +291,8 @@ def node_finalize(state: BotState) -> BotState:
             text = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}" if res.get("ok") else f"❗{res.get('message','조회 실패')}"
         else: # FAQ도 여기서 처리
             text = res.get("answer", "죄송합니다. 답변을 찾지 못했습니다.")
-        return {**state, "result": text}
+        # 💡 수정: 반환 키를 'reply'로 통일
+        return {**state, "reply": text}
     return state
 
 # =============================================================
@@ -390,7 +395,7 @@ def node_classify(state: BotState) -> BotState:
     return {**state, "intent": intent, "tool_output": args}
 
 def node_greeting(state: BotState) -> BotState:
-    return {**state, "result": "네, 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.", "sources": []}
+    return {**state, "reply": "네, 반갑습니다. 문의사항을 말씀해 주시면 제가 도와드릴게요.", "sources": []}
 
 def node_direct_tool(state: BotState) -> BotState:
     tool_name = state.get("tool_output", {}).get("tool_name")
@@ -412,7 +417,8 @@ def node_direct_tool(state: BotState) -> BotState:
 def node_faq(state: BotState) -> BotState:
     faq_answer = find_similar_faq(state["question"])
     if faq_answer:
-        return {**state, "tool_output": {"ok": True, "answer": faq_answer.get("answer")}, "intent": "faq", "sources": [{"source": "faq_data.csv"}]} # 변경: 소스 정보 추가
+        # 💡 수정: 반환 키를 'reply'로 통일
+        return {**state, "tool_output": {"ok": True, "answer": faq_answer.get("answer")}, "intent": "faq", "sources": [{"source": "faq_data.csv"}]}
     else:
         # FAQ에서 찾지 못하면 일반 QA로 전환
         return {**state, "intent": "general_qa"}
@@ -493,14 +499,14 @@ def run_graph_pipeline(question: str, session_id: str) -> Dict[str, Any]:
     if _graph is None: _graph = build_graph()
     
     out = _graph.invoke(
-        input={"question": question, "intent":"", "result":"", "sources":[], "tool_output":{}},
+        input={"question": question, "intent":"", "reply":"", "sources":[], "tool_output":{}},
         config={"configurable": {"thread_id": session_id}, "callbacks": callbacks}
     )
     logger.info("pipeline_out", extra={"extra_data": {"intent": out.get("intent", "")}})
     
     # LangGraph 결과에서 최종 답변과 의도 반환
     return {
-        "reply": out.get("result", "죄송합니다. 답변을 찾지 못했습니다."),
+        "reply": out.get("reply", "죄송합니다. 답변을 찾지 못했습니다."),
         "intent": out.get("intent", "unsupported"),
         "sources": out.get("sources", []),
     }
