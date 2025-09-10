@@ -1,7 +1,12 @@
 # .gitignore
+.env
+*.env
 
 # Python Virtual Environment
 .venv/
+
+# Local environment variables
+
 
 # Python build artifacts and cache
 __pycache__/
@@ -24,8 +29,7 @@ index/
 .vscode/
 .idea/
 
-# Local environment variables
-.env
+
 
 
 # User-uploaded or large knowledge base files
