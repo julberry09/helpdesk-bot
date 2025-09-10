@@ -2,8 +2,6 @@
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-
 import json
 import re
 import pytest
@@ -12,7 +10,6 @@ import uuid
 
 from helpdesk_bot.api import api
 from helpdesk_bot.core import AZURE_AVAILABLE, build_or_load_vectorstore, get_okt # get_okt 임포트 추가
-
 
 # =============================================================
 # Fixtures & Helpers

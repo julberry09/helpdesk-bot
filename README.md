@@ -150,12 +150,13 @@ API 서버와 UI를 각각 다른 터미널에서 실행해야 합니다. (각 �
 
 **- 사전작업 Windows (Git Bash)**
 ```bash
+# 가상화 실행
 source .venv/Scripts/activate
 ```
 
 **- 터미널 1: FastAPI 백엔드 실행**
 ```bash
-
+# 서버 실행
 python -m helpdesk_bot.api --port 8001 
 
 ```
@@ -168,6 +169,7 @@ uvicorn helpdesk_bot.api:api --port 8001 --reload
 
 **- 터미널 2: Streamlit UI 실행**
 ```bash
+# UI 실행
 streamlit run src/helpdesk_bot/ui.py --server.port 8507
 ```
 
