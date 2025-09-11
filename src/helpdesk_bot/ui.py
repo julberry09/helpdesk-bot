@@ -3,6 +3,10 @@
 import sys
 import os
 # sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))))
+BASE_DIR = Path(__file__).resolve().parents[2]
+SRC_DIR = BASE_DIR / "src"
+sys.path.insert(0, str(SRC_DIR))
+
 import streamlit as st
 import httpx
 import uuid
@@ -78,21 +82,31 @@ def main():
                         w.write(f.read())
                 st.success(f"{len(uploaded)}개 문서 저장됨. 'Sync Content'를 눌러 반영하세요.")
 
-            # 버튼 좌우에 5% 여백을 주기 위한 중첩 컬럼
-            btn_left, btn_mid, btn_right = st.columns([0.05, 0.7, 0.25])
-            # '인덱스 재빌드 Rebuild Index' 버튼을 가운데 컬럼(btn_mid)에 배치
-            with btn_mid:
-                if st.button("Sync Content", disabled=not AZURE_AVAILABLE, use_container_width=True):
-                    try:
-                        for ext in [".faiss", ".pkl"]:
-                            p = constants.INDEX_DIR / f"{constants.INDEX_NAME}{ext}"
-                            if p.exists(): p.unlink()
-                        with st.spinner("Index 재생성 중..."):
-                            build_or_load_vectorstore()
-                        st.success("완료!")
-                    except Exception as e:
-                        st.error(f"실패: {e}")
-        
+            # # 이 부분에서 중첩된 st.columns를 제거합니다.
+            # btn_left, btn_mid, btn_right = st.columns([0.05, 0.7, 0.25])
+            # with btn_mid:
+            #     if st.button("Sync Content", disabled=not AZURE_AVAILABLE, use_container_width=True):
+            #         try:
+            #             for ext in [".faiss", ".pkl"]:
+            #                 p = constants.INDEX_DIR / f"{constants.INDEX_NAME}{ext}"
+            #                 if p.exists(): p.unlink()
+            #             with st.spinner("Index 재생성 중..."):
+            #                 build_or_load_vectorstore()
+            #             st.success("완료!")
+            #         except Exception as e:
+            #             st.error(f"실패: {e}")
+            
+            # 버튼을 main_col에 직접 배치하여 오류를 해결합니다.
+            if st.button("Sync Content", disabled=not AZURE_AVAILABLE, use_container_width=True):
+                try:
+                    for ext in [".faiss", ".pkl"]:
+                        p = constants.INDEX_DIR / f"{constants.INDEX_NAME}{ext}"
+                        if p.exists(): p.unlink()
+                    with st.spinner("Index 재생성 중..."):
+                        build_or_load_vectorstore()
+                    st.success("완료!")
+                except Exception as e:
+                    st.error(f"실패: {e}")
         st.divider()
         api_host = os.getenv("API_CLIENT_HOST", "localhost")
         api_port = int(os.getenv("API_PORT", 8001))
@@ -154,18 +168,40 @@ def main():
                     reply = f"오류: {e}"
                     sources = []
 
+                # if reply:
+                #     st.markdown(reply)
+                #     if sources:
+                #         with st.expander("🔎 참고 자료"):
+                #             for s in sources:
+                #                 source_display = format_source_name(s.get('source', '알 수 없음'))
+                #                 if s.get("page") is not None:
+                #                     line = f"- {source_display}, page {int(s['page']) + 1}"
+                #                 else:
+                #                     line = f"- {source_display}"
+                #                 st.write(line)
+                #     st.session_state.chat.append(("assistant", reply))
                 if reply:
                     st.markdown(reply)
                     if sources:
                         with st.expander("🔎 참고 자료"):
+                            # 중복 소스를 제거하기 위한 리스트
+                            seen_sources = set()
+                            
                             for s in sources:
-                                source_display = format_source_name(s.get('source', '알 수 없음'))
-                                if s.get("page") is not None:
-                                    line = f"- {source_display}, page {int(s['page']) + 1}"
-                                else:
-                                    line = f"- {source_display}"
-                                st.write(line)
-                    st.session_state.chat.append(("assistant", reply))
-
+                                source_key = s.get('source', '알 수 없음')
+                                
+                                # 중복되지 않은 소스만 추가
+                                if source_key not in seen_sources:
+                                    source_display = format_source_name(source_key)
+                                    
+                                    # 페이지 정보가 없는 경우와 있는 경우를 분리하여 표시
+                                    if s.get("page") is not None:
+                                        line = f"- {source_display}, page {int(s['page']) + 1}"
+                                    else:
+                                        line = f"- {source_display}"
+                                    
+                                    st.write(line)
+                                    seen_sources.add(source_key) # 중복을 방지하기 위해 추가
+                        st.session_state.chat.append(("assistant", reply))
 if __name__ == "__main__":
     main()

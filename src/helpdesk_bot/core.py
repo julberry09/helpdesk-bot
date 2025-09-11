@@ -40,7 +40,15 @@ load_dotenv()
 # 로거 설정
 logger = logging.getLogger("helpdesk-bot")
 if not logger.handlers:
-    LOG_DIR = Path("./logs")
+    #LOG_DIR = Path("./logs")
+    # 경로 변수 정의
+    # 기존: LOG_DIR = Path("./logs")
+    # 수정:
+    # `Path(__file__).resolve().parent.parent.parent / "logs"`
+    # 이 코드는 현재 파일(core.py)의 위치에서 상위 폴더를 세 번 이동하여 프로젝트 루트로 이동합니다.
+    # 그리고 그 아래에 logs 폴더를 지정합니다.
+    LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+    
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     
     class _ConsoleFormatter(logging.Formatter):
@@ -151,16 +159,27 @@ def _make_embedder() -> AzureOpenAIEmbeddings:
 # RAG - 원본 데이터 수집 및 전처리 로직 [checklist: 6]
 def _load_docs_from_kb() -> List[Document]:
     docs: List[Document] = []
+    
+    # kb_default 폴더의 FAQ 데이터 포함
+    faq_data = load_faq_data()
+    if faq_data:
+        docs.extend([
+            Document(
+                page_content=f"질문: {item.get('question')}\n답변: {item.get('answer')}",
+                metadata={"source": "faq_data.csv"}
+            ) for item in faq_data
+        ])
+
+    # 기존 로직 (kb_default/kb_data의 기타 문서들 로드)
     for kb_path in [constants.KB_DEFAULT_DIR, constants.KB_DATA_DIR]:
         if not kb_path.exists():
             kb_path.mkdir(parents=True, exist_ok=True)
         for p in kb_path.rglob("*"):
-            if p.is_file():
+            if p.is_file() and p.name != "faq_data.csv":
                 try:
                     suf = p.suffix.lower()
                     if suf == ".pdf": docs.extend(PyPDFLoader(str(p)).load())
-                    elif suf == ".csv" and p.name != "faq_data.csv":
-                        docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
+                    elif suf == ".csv": docs.extend(CSVLoader(file_path=str(p), encoding="utf-8").load())
                     elif suf in [".txt", ".md"]: docs.extend(TextLoader(str(p), encoding="utf-8").load())
                     elif suf == ".docx": docs.extend(Docx2txtLoader(str(p)).load())
                 except Exception as e:
@@ -421,6 +440,7 @@ def node_direct_tool(state: BotState) -> BotState:
     elif tool_name == "tool_request_id":
         res = tool_request_id.invoke({})
     elif tool_name == "tool_owner_lookup":
+        # 수정: payload 인자를 직접 전달
         res = tool_owner_lookup.invoke(payload)
     else:
         res = {"ok": False, "message": "알 수 없는 도구 호출"}
@@ -428,15 +448,25 @@ def node_direct_tool(state: BotState) -> BotState:
     # 도구 결과에 원래 호출된 도구 이름 추가
     res["tool_name"] = tool_name
     return {**state, "tool_output": res}
-
+    
+# 노드(Node) 함수 수정
 def node_faq(state: BotState) -> BotState:
-    faq_answer = find_similar_faq(state["question"])
-    if faq_answer:
-        # 💡 수정: 반환 키를 'reply'로 통일
-        return {**state, "tool_output": {"ok": True, "answer": faq_answer.get("answer")}, "intent": "faq", "sources": [{"source": "faq_data.csv"}]}
-    else:
-        # FAQ에서 찾지 못하면 일반 QA로 전환
-        return {**state, "intent": "general_qa"}
+    # FAQ 데이터는 이미 RAG 파이프라인에 포함되어 있으므로,
+    # 이 노드에서는 FAQ와 관련된 질문인지 확인만 하고 바로 RAG로 라우팅
+    # (단, 아래 로직은 필요에 따라 삭제 또는 수정될 수 있습니다. 
+    #  현재는 RAG 노드에서 FAQ를 포함한 모든 문서를 처리하도록 되어 있습니다.)
+    
+    # 이 부분을 삭제하거나, 더 이상 FAQ를 별도로 처리하지 않도록 수정합니다.
+    # 기존 로직:
+    # faq_answer = find_similar_faq(state["question"])
+    # if faq_answer:
+    #     return {**state, "tool_output": {"ok": True, "answer": faq_answer.get("answer")}, "intent": "faq", "sources": [{"source": "faq_data.csv"}]}
+    # else:
+    #     return {**state, "intent": "general_qa"}
+
+    # 개선된 로직:
+    # FAQ 질문은 일반 질문과 마찬가지로 RAG 노드로 라우팅
+    return {**state, "intent": "general_qa"}
 
 _memory_checkpointer = MemorySaver()
 _graph = None
@@ -575,9 +605,15 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
         if "담당자" in question:
             screen = "인사시스템-사용자관리" if "인사시스템" in question else "담당자 조회"
             
-            # Pydantic 오류 해결: payload 인자를 딕셔너리로 래핑
-            res = tool_owner_lookup.invoke({"payload": {"screen": screen}})
-            #res = tool_owner_lookup.invoke({"screen": screen})
+            # Pydantic 오류 수정: payload 인자를 딕셔너리로 래핑
+            # 기존 코드: res = tool_owner_lookup.invoke({"payload": {"screen": screen}})
+            # tool_owner_lookup 함수는 payload 자체를 인자로 받으므로,
+            # 아래와 같이 `payload` 변수에 딕셔너리를 담아 직접 전달해야 합니다.
+            
+            # 수정된 코드: payload 변수에 딕셔너리 할당
+            payload = {"screen": screen}
+            # 수정된 코드: invoke 호출 시 payload 변수 직접 전달
+            res = tool_owner_lookup.invoke(payload)
             
             if res.get("ok"):
                 reply = f"👤 '{res.get('screen')}' 담당자\n- 이름: {res.get('owner', {}).get('owner')}\n- 이메일: {res.get('owner', {}).get('email')}\n- 연락처: {res.get('owner', {}).get('phone')}"
@@ -590,7 +626,6 @@ def pipeline(question: str, session_id: str) -> Dict[str, Any]:
                 "sources": []
             }
         
-
         # 1. FAQ 검색을 도구 키워드보다 먼저 수행하여 RAG 테스트 통과
         faq_item = find_similar_faq(question)
         if faq_item:
